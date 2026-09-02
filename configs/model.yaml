@@ -1,0 +1,15 @@
+# Frozen 2026-09-02 — applies to agent, user simulator, AND fixer.
+# Any change to this file invalidates all prior runs.
+model: openrouter/qwen/qwen3.8-27b
+llm_args:
+  temperature: 0.0
+  seed: 42
+max_steps: 50
+max_errors: 10
+retrieval_config: bm25
+tau2_bench:
+  repo: https://github.com/sierra-research/tau2-bench.git
+  version: v1.0.1
+  commit: fc0055dc4e0a316c3f83133267fbd6faaa770992
+  install: uv sync --frozen --extra knowledge
+domain: banking_knowledge

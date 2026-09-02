@@ -1,0 +1,4 @@
+# 10 held-out test task IDs — FROZEN at O2 (step 2).
+# The fixer NEVER sees these tasks' criteria, documents, or trajectories.
+# Status: NOT YET SELECTED.
+tasks: []
