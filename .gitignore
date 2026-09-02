@@ -1,0 +1,8 @@
+tau2-bench
+.venv/
+__pycache__/
+*.pyc
+.env
+data/simulations/
+results/raw/
+.DS_Store
