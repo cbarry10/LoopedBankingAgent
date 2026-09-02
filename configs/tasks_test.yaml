@@ -1,4 +1,13 @@
-# 10 held-out test task IDs — FROZEN at O2 (step 2).
-# The fixer NEVER sees these tasks' criteria, documents, or trajectories.
-# Status: NOT YET SELECTED.
-tasks: []
+# 10 held-out test tasks — FROZEN by scripts/select_tasks.py (seed 42); do not edit by hand.
+# id: primary_topic / complexity (n_actions, n_required_docs)
+tasks:
+  - task_001  # credit_cards / low (1 actions, 4 docs)
+  - task_027  # credit_cards / low (6 actions, 8 docs)
+  - task_029  # credit_cards / mid (8 actions, 10 docs)
+  - task_049  # credit_cards / high (19 actions, 8 docs)
+  - task_056  # business / mid (8 actions, 12 docs)
+  - task_058  # savings_accounts / low (4 actions, 5 docs)
+  - task_069  # savings_accounts / mid (7 actions, 19 docs)
+  - task_072  # checking_accounts / mid (9 actions, 9 docs)
+  - task_078  # bank_accounts / high (22 actions, 11 docs)
+  - task_085  # bank_accounts / mid (13 actions, 7 docs)
