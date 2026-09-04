@@ -16,13 +16,18 @@ jobs:
   eval:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write  # commit eval results back to the repo
+    env:
+      # One label shared by the eval run and the commit-back step.
+      SAVE_TO: ${{ inputs.run_label != '' && inputs.run_label || format('gha_{0}', github.run_id) }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # tau2-bench requires >=3.12,<3.14
 
       - name: Set up tau2-bench at pin
         run: ./scripts/setup_env.sh
@@ -34,13 +39,33 @@ jobs:
       - name: Scored eval run
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          SAVE_TO: ${{ inputs.run_label != '' && inputs.run_label || format('gha_{0}', github.run_id) }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
-      - name: Upload results
+      - name: Upload results (artifact backup)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tau2-results-${{ github.run_id }}
           path: tau2-bench/data/simulations/
           if-no-files-found: warn
+
+      - name: Commit results back to repo
+        if: always()  # capture partial results even if the eval step failed
+        run: |
+          set -euo pipefail
+          SRC="tau2-bench/data/simulations/${SAVE_TO}"
+          if [ ! -d "$SRC" ]; then
+            echo "No results directory at $SRC — nothing to commit."
+            exit 0
+          fi
+          mkdir -p "results/${SAVE_TO}"
+          cp -R "$SRC"/. "results/${SAVE_TO}/"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "results/${SAVE_TO}"
+          if git diff --cached --quiet; then
+            echo "No result changes to commit."
+            exit 0
+          fi
+          git commit -m "eval results: ${SAVE_TO} (run ${{ github.run_id }})"
+          git push
