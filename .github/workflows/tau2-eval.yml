@@ -12,6 +12,11 @@ on:
         required: false
         default: ""
 
+# Serialize dispatches so their commit-back pushes never race each other.
+concurrency:
+  group: tau2-eval
+  cancel-in-progress: false
+
 jobs:
   eval:
     runs-on: ubuntu-latest
@@ -42,22 +47,24 @@ jobs:
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)
-        if: always()
+        if: always()  # keep even the error results for debugging
         uses: actions/upload-artifact@v4
         with:
           name: tau2-results-${{ github.run_id }}
           path: tau2-bench/data/simulations/
           if-no-files-found: warn
 
+      # tau2 exits 0 even when every task hits an infrastructure error, so the
+      # eval step passing is not proof of real data. Gate on the actual rewards.
+      - name: Validate results carry signal
+        run: python scripts/check_results.py "tau2-bench/data/simulations/${SAVE_TO}/results.json"
+
+      # Only runs when the eval produced valid, scored results (previous step
+      # succeeded), so placeholder/error runs never land in the repo.
       - name: Commit results back to repo
-        if: always()  # capture partial results even if the eval step failed
         run: |
           set -euo pipefail
           SRC="tau2-bench/data/simulations/${SAVE_TO}"
-          if [ ! -d "$SRC" ]; then
-            echo "No results directory at $SRC — nothing to commit."
-            exit 0
-          fi
           mkdir -p "results/${SAVE_TO}"
           cp -R "$SRC"/. "results/${SAVE_TO}/"
           git config user.name "github-actions[bot]"
@@ -68,4 +75,13 @@ jobs:
             exit 0
           fi
           git commit -m "eval results: ${SAVE_TO} (run ${{ github.run_id }})"
-          git push
+          # Resilient push: rebase onto any concurrent update and retry.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "pushed on attempt ${attempt}"; exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); rebasing on latest main..."
+            git pull --rebase origin main
+          done
+          echo "ERROR: could not push results after 5 attempts" >&2
+          exit 1
