@@ -15,6 +15,10 @@ on:
         description: "Agent: llm_agent (baseline) or llm_agent_harness (improved)"
         required: false
         default: "llm_agent"
+      runner:
+        description: "Runner: cli (baseline default) or python (in-process run_domain; needed for the harness, or baseline parity checks)"
+        required: false
+        default: "cli"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -49,6 +53,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           AGENT: ${{ inputs.agent }}
+          RUNNER: ${{ inputs.runner }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

@@ -15,10 +15,11 @@ MODEL="openrouter/qwen/qwen3.8-27b"
 LLM_ARGS='{"temperature": 0.0, "seed": 42}'
 SAVE_TO="${SAVE_TO:-run_$(date -u +%Y%m%dT%H%M%SZ)}"
 AGENT="${AGENT:-llm_agent}"  # baseline; set to llm_agent_harness for the improved variant
+RUNNER="${RUNNER:-cli}"      # cli = tau2 CLI (baseline); python = in-process run_domain
 
 cd tau2-bench
 
-if [ "$AGENT" = "llm_agent" ]; then
+if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ]; then
   # Baseline path — unchanged; runs stock llm_agent via the tau2 CLI.
   uv run tau2 run \
     --domain banking_knowledge \
@@ -36,9 +37,10 @@ if [ "$AGENT" = "llm_agent" ]; then
     --task-ids "$@" \
     --save-to "$SAVE_TO"
 else
-  # Improved path — registers the harness agent at runtime, then runs in-process
-  # (a fresh `tau2 run` subprocess would not see the registration). Same controls.
-  uv run python ../harness/run_harness.py --save-to "$SAVE_TO" "$@"
+  # In-process path via run_domain. Used for the harness variant (which must be
+  # registered at runtime) and for baseline parity checks (AGENT=llm_agent
+  # RUNNER=python) that isolate path effects from rule effects. Same controls.
+  uv run python ../harness/run_harness.py --agent "$AGENT" --save-to "$SAVE_TO" "$@"
 fi
 
 echo "Results: tau2-bench/data/simulations/$SAVE_TO/results.json"

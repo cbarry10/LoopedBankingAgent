@@ -53,16 +53,25 @@ def _self_check() -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Run tau2 banking_knowledge with the harness agent")
+    p = argparse.ArgumentParser(description="Run tau2 banking_knowledge via run_domain (in-process)")
     p.add_argument("task_ids", nargs="+", help="banking_knowledge task IDs")
     p.add_argument("--save-to", required=True, help="results directory label")
+    p.add_argument(
+        "--agent",
+        default="llm_agent_harness",
+        help="llm_agent_harness (improved) or llm_agent (baseline via the SAME python path, for parity checks)",
+    )
     args = p.parse_args()
 
-    agent = register()  # llm_agent_harness
-    _self_check()
+    if args.agent == "llm_agent_harness":
+        register()  # register the variant, then prove the rules landed
+        _self_check()
+    # else: baseline llm_agent is registered by tau2 by default — run it as-is,
+    # through this same run_domain path, to isolate path effects from rule effects.
+
     cfg = TextRunConfig(
         domain="banking_knowledge",
-        agent=agent,
+        agent=args.agent,
         llm_agent=MODEL,
         llm_args_agent=LLM_ARGS,
         user="user_simulator",
