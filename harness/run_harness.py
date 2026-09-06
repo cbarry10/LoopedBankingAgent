@@ -18,11 +18,38 @@ from tau2.data_model.simulation import TextRunConfig
 from tau2.run import run_domain
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from agent_harness import register  # noqa: E402
+from agent_harness import HarnessLLMAgent, register, rules_text  # noqa: E402
 
 # Frozen controls — keep in sync with configs/model.yaml
 MODEL = "openrouter/qwen/qwen3.8-27b"
 LLM_ARGS = {"temperature": 0.0, "seed": 42}
+
+
+def _self_check() -> None:
+    """Prove the rules reach the agent's system prompt BEFORE any LLM call.
+
+    Guards against silently running the baseline (empty rules or a registration
+    mismatch). Fails fast with no credit spent if the harness is not active.
+    """
+    probe = HarnessLLMAgent(
+        tools=[], domain_policy="PROBE_POLICY", llm=MODEL, llm_args=LLM_ARGS
+    )
+    sp = probe.system_prompt
+    marker = "<harness_rules>" in sp
+    first_rule = "Search before you decide" in sp
+    print(
+        f"[self-check] rules.md body: {len(rules_text())} chars | "
+        f"<harness_rules> in prompt: {marker} | rule-1 text present: {first_rule} | "
+        f"system prompt: {len(sp)} chars"
+    )
+    if not (marker and first_rule):
+        print(
+            "[self-check] FAIL: harness rules not present in the agent system "
+            "prompt — aborting before eval (no credit spent).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("[self-check] PASS: harness agent is active.")
 
 
 def main() -> None:
@@ -32,6 +59,7 @@ def main() -> None:
     args = p.parse_args()
 
     agent = register()  # llm_agent_harness
+    _self_check()
     cfg = TextRunConfig(
         domain="banking_knowledge",
         agent=agent,
