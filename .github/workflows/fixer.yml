@@ -1,0 +1,78 @@
+name: fixer
+
+on:
+  workflow_dispatch:
+    inputs:
+      iter:
+        description: "Fixer iteration number (1 or 2)"
+        required: true
+        default: "1"
+      dev_results:
+        description: "Repo-relative path to the current-best dev results.json"
+        required: true
+        default: "results/harness_v0_dev/results.json"
+      save_to:
+        description: "Label for this iteration's dev run"
+        required: true
+        default: "fixer_iter1_dev"
+
+# Share the eval lock so fixer runs and eval runs never race on the push to main.
+concurrency:
+  group: tau2-eval
+  cancel-in-progress: false
+
+jobs:
+  fixer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up tau2-bench at pin
+        run: ./scripts/setup_env.sh
+
+      - name: Fixer iteration (diagnose -> apply -> run dev -> keep-if-better)
+        working-directory: tau2-bench
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: >-
+          uv run python ../harness/fixer.py
+          --iter ${{ inputs.iter }}
+          --dev-results ${{ inputs.dev_results }}
+          --save-to ${{ inputs.save_to }}
+
+      - name: Upload results (artifact backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixer-results-${{ github.run_id }}
+          path: tau2-bench/data/simulations/
+          if-no-files-found: warn
+
+      - name: Commit rules, log, and results back to repo
+        run: |
+          set -euo pipefail
+          git add harness/rules.md harness/fixer_log.md results/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fixer iteration ${{ inputs.iter }} (run ${{ github.run_id }})"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "pushed on attempt ${attempt}"; exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); rebasing..."
+            git pull --rebase origin main
+          done
+          echo "ERROR: could not push after 5 attempts" >&2
+          exit 1
