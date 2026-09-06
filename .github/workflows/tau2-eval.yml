@@ -11,6 +11,10 @@ on:
         description: "Label for the results directory"
         required: false
         default: ""
+      agent:
+        description: "Agent: llm_agent (baseline) or llm_agent_harness (improved)"
+        required: false
+        default: "llm_agent"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -44,6 +48,7 @@ jobs:
       - name: Scored eval run
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AGENT: ${{ inputs.agent }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)
