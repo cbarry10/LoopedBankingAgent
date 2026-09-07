@@ -93,7 +93,7 @@ an audit of v1 found the model was caged and half-blind, not weak:
 | `rules.md` and `fixer_log.md` hardcoded — a v2 run would have **overwritten the frozen v0 artifact** and contaminated v1's log | `--rules` / `--log` explicit; `rules.md` is in a `FROZEN_RULES` set and can never be written |
 | `run_dev` never received the rules file — the fixer would **edit file A and evaluate file B**, silently | rules file passed through the env; the fixer asserts the harness loaded exactly that file before spending credit |
 | `--iter` / `--dev-results` chosen by a human each round — a person steering the loop | **automatic chaining** via `fixer_v2_state.json` (current best, iteration count, history); `--init-results` seeds it once |
-| digest showed searches and final actions but **no tool responses** — the freeze→unfreeze ordering error and the phantom-duplicate-account pathology were invisible | digest is the **ordered trace** of every call → response (errors included), repeats flagged |
+| digest showed searches and final actions but **no tool responses** — the freeze→unfreeze ordering error was invisible | digest is the **ordered trace** of every call → response (errors included), repeats flagged |
 | prompt implied constraints only; both v1 edits were constraints | prompt names the full repertoire: constraints, worked example (fictional placeholders only), procedure, checklist; new `tool_sequencing` category |
 | prior attempts read from a shared path by accident | own log + any `--prior-logs` passed **explicitly** at dispatch, so inheritance is a visible choice |
 
