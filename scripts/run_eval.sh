@@ -16,12 +16,15 @@ LLM_ARGS='{"temperature": 0.0, "seed": 42}'
 SAVE_TO="${SAVE_TO:-run_$(date -u +%Y%m%dT%H%M%SZ)}"
 AGENT="${AGENT:-llm_agent}"  # baseline; set to llm_agent_harness for the improved variant
 RUNNER="${RUNNER:-cli}"      # cli = tau2 CLI (baseline); python = in-process run_domain
-REASONING="${REASONING:-off}"  # v1 arm: off | low | medium | high (agent-side only)
+# Agent-side reasoning mode. NOTE: this model reasons BY DEFAULT, so 'default'
+# (send nothing) is what every v0 result used. 'disabled' explicitly turns it off.
+REASONING="${REASONING:-default}"  # default | disabled | low | medium | high
 
 cd tau2-bench
 
-# Reasoning forces the in-process path (the CLI cannot pass agent-only reasoning args).
-if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ] && [ "$REASONING" = "off" ]; then
+# Any non-default reasoning forces the in-process path (the CLI cannot pass
+# agent-only reasoning args).
+if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ] && [ "$REASONING" = "default" ]; then
   # Baseline path — unchanged; runs stock llm_agent via the tau2 CLI.
   uv run tau2 run \
     --domain banking_knowledge \

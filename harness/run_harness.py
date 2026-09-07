@@ -8,12 +8,20 @@ ARMS
 ----
 v0 (frozen, reported): agent + user sim both at temperature 0.0, seed 42, no
     reasoning. This is the configuration behind every result in results/.
-v1 (reasoning arm): reasoning enabled on the AGENT ONLY. The user simulator is
-    part of the environment — changing it would alter task difficulty and
-    confound the comparison against the v0 baseline — so it stays at temp 0.0.
-    Qwen advises against greedy decoding in thinking mode (it degenerates into
-    repetition), so the agent uses vendor-recommended sampling when reasoning
-    is on. This couples two controls on purpose; see harness/FUTURE_OPTIONS.md.
+v1 (reasoning arms): the AGENT's reasoning setting is the ONLY thing that
+    changes. Temperature stays 0.0 everywhere.
+
+    IMPORTANT: this model reasons BY DEFAULT — the v0 "baseline" already emitted
+    ~83.5k agent reasoning tokens on the dev set (~437 tok/message). So
+    reasoning was never off; it is a constant we had not manipulated. Arms:
+      default  = send no reasoning param (what every v0 result used)
+      disabled = explicitly turn reasoning off  -> does reasoning help at all?
+      low/medium/high = effort level            -> does MORE reasoning help?
+
+    Temperature is deliberately NOT changed. Qwen advises against greedy
+    decoding in thinking mode, but our own v0 runs were greedy + thinking with
+    no degeneration, and we score a single sample (pass^1), where sampling only
+    adds variance. See harness/FUTURE_OPTIONS.md.
 
 Run from tau2-bench/:
     uv run python ../harness/run_harness.py --save-to <label> task_001 ...
@@ -35,15 +43,21 @@ from agent_harness import HarnessLLMAgent, register, rules_text  # noqa: E402
 MODEL = "openrouter/qwen/qwen3.8-27b"
 LLM_ARGS = {"temperature": 0.0, "seed": 42}
 
-# v1 reasoning arm, agent only. Vendor-recommended sampling for thinking mode.
-REASONING_AGENT_ARGS = {"temperature": 0.6, "top_p": 0.95, "seed": 42}
+REASONING_MODES = ("default", "disabled", "low", "medium", "high")
 
 
 def agent_llm_args(reasoning: str | None) -> dict:
-    """LLM args for the agent. reasoning: None/'off' | 'low' | 'medium' | 'high'."""
-    if not reasoning or reasoning == "off":
-        return dict(LLM_ARGS)
-    args = dict(REASONING_AGENT_ARGS)
+    """Agent LLM args. Temperature/seed are NEVER varied — only reasoning is.
+
+    reasoning: 'default' (send nothing, model reasons by default) |
+               'disabled' (explicitly off) | 'low' | 'medium' | 'high'.
+    """
+    args = dict(LLM_ARGS)  # temperature 0.0, seed 42 — held constant
+    if not reasoning or reasoning == "default":
+        return args
+    if reasoning == "disabled":
+        args["extra_body"] = {"reasoning": {"enabled": False}}
+        return args
     args["reasoning_effort"] = reasoning
     return args
 
@@ -109,9 +123,9 @@ def main() -> None:
     )
     p.add_argument(
         "--reasoning",
-        default="off",
-        choices=["off", "low", "medium", "high"],
-        help="v1 arm: enable agent-side reasoning at this effort (default off = frozen v0 controls)",
+        default="default",
+        choices=list(REASONING_MODES),
+        help="agent-side reasoning mode; 'default' reproduces every v0 result (the model reasons by default)",
     )
     args = p.parse_args()
 

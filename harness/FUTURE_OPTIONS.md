@@ -14,8 +14,8 @@ honest 80/20 target is **2/10 → 3–4/10**, not 8/10.
 
 | # | Lever | Effort | Impact | Rationale / evidence |
 |---|---|---|---|---|
-| **1** ✅ | **Reasoning ("thinking") mode, agent-side** | trivial | highest | Our dominant failure is non-convergence on long tool sequences; Sierra found reasoning helps most exactly there. **SELECTED — v1 arm.** |
-| 2 | **Cut context bloat: `top_k` 10 → 3–5**, and/or truncate doc bodies | trivial | high | Every `KB_search` returns **exactly 10 full docs** (452/452 calls measured). `task_069` ingested ~490 doc views. The 27B model is drowning, not starved. |
+| ~~1~~ | ~~Reasoning ("thinking") mode, agent-side~~ | trivial | **largely spent** | **The model reasons BY DEFAULT.** Measured: v0 `baseline_dev` emitted 83,498 agent reasoning tokens over 191 messages (~437 tok/msg). Reasoning was never off — it is a constant we had not manipulated, not an untested lever. What remains testable is *effort level* and *explicit disable*, both gated by a delta-probe (backend is vLLM and may ignore `reasoning_effort`). |
+| **1** | **Cut context bloat: `top_k` 10 → 3–5**, and/or truncate doc bodies | trivial | high | **Now the top untested lever.** Every `KB_search` returns **exactly 10 full docs** (452/452 calls measured). `task_069` ingested ~490 doc views. The 27B model is drowning, not starved. |
 | 3 | **Few-shot worked trajectory** in the harness (search → cite → act → stop) instead of abstract rules | low | moderate–high | Both fixer iterations proved abstract *constraints* backfire; demonstrations stabilize tool use. Stays inside the harness-only thesis. |
 | 4 | **Tool-protocol scaffold** for the discoverable-tools sequence (unlock → call; each once unless new info) | low | moderate | Targets the tool-loop sub-mode directly (`task_077` unlock×7/call×14; `task_090`, `task_027`). Harness-only. |
 | 5 | **Progress-gated loop-breaker** — after N searches with no new doc, force "decide: act or ask the user" | moderate | high on the 7/10 `max_steps` mode | Bounds must sit on the runtime feedback path, not just a max-turn cap; stall-triggered replanning. ~40 lines in `agent_harness.py`. |
@@ -36,6 +36,17 @@ investment if `max_steps` still dominates after that.
    DB-reward tasks (`select_tasks.py`, new seed, excluding used IDs).
 3. **Hold the environment fixed.** Change the agent, not the user simulator or
    the scorer — otherwise you change task difficulty, not agent skill.
+4. **One variable per arm.** Temperature stays **0.0** in every arm. We score a
+   single sample (pass^1), where sampling adds variance without the multi-sample
+   selection that would make diversity pay; tau2's own default is 0.0; and our
+   v0 runs were already greedy + thinking with no degeneration, so the vendor's
+   caution about greedy thinking does not bind on this deployment. If temp > 0
+   is ever genuinely needed, mitigate with `num_trials >= 3` and average — never
+   a single sample.
+5. **Verify deltas, not presence.** A probe must prove the knob *changed
+   behaviour versus the control*, not merely that a feature is on. The first
+   reasoning probe passed while testing nothing, because reasoning was already
+   on by default.
 
 ## Sources
 - Sierra, τ³-Bench / advancing agent evaluation: https://sierra.ai/blog/bench-advancing-agent-benchmarking-to-knowledge-and-voice

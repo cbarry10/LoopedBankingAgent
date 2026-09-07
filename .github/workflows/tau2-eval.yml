@@ -20,9 +20,9 @@ on:
         required: false
         default: "cli"
       reasoning:
-        description: "v1 arm — agent-side reasoning effort: off | low | medium | high"
+        description: "Agent-side reasoning: default (v0 behaviour; model reasons by default) | disabled | low | medium | high"
         required: false
-        default: "off"
+        default: "default"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -53,9 +53,9 @@ jobs:
         working-directory: tau2-bench
         run: uv run python ../scripts/validate_env.py
 
-      # Fail fast if the reasoning arm would silently run as the baseline.
-      - name: Probe reasoning is active
-        if: inputs.reasoning != 'off'
+      # Fail fast if the reasoning mode would not actually differ from the baseline.
+      - name: Probe reasoning delta vs default
+        if: inputs.reasoning != 'default'
         working-directory: tau2-bench
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
