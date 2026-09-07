@@ -1,22 +1,30 @@
 name: fixer
 
+# One fixer v2 iteration. Chaining is AUTOMATIC via harness/<state> — dispatch
+# this repeatedly and each run continues from the committed current best; no
+# human chooses which results feed the next round. rules.md (frozen v0) can
+# never be written. See harness/FIXER_SPEC.md (v2 section).
+
 on:
   workflow_dispatch:
     inputs:
-      iter:
-        description: "Fixer iteration number (1 or 2)"
+      rules:
+        description: "Rules file in harness/ the fixer reads+writes (NOT rules.md). Created empty on first run."
         required: true
-        default: "1"
-      dev_results:
-        description: "Repo-relative path to the current-best dev results.json"
-        required: true
-        default: "results/harness_v0_dev/results.json"
-      save_to:
-        description: "Label for this iteration's dev run"
-        required: true
-        default: "fixer_iter1_dev"
+        default: "rules_fixer.md"
+      init_results:
+        description: "First run only: repo-relative results.json seeding the current best (the no-harness baseline)"
+        required: false
+        default: "results/baseline_dev/results.json"
+      prior_logs:
+        description: "Space-separated extra logs in harness/ whose attempts the fixer is shown (e.g. fixer_log.md = v1's record). Explicit, so inheritance is visible."
+        required: false
+        default: ""
+      max_iters:
+        description: "Refuse to run past this iteration number"
+        required: false
+        default: "4"
 
-# Share the eval lock so fixer runs and eval runs never race on the push to main.
 concurrency:
   group: tau2-eval
   cancel-in-progress: false
@@ -24,7 +32,7 @@ concurrency:
 jobs:
   fixer:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       contents: write
     steps:
@@ -38,15 +46,16 @@ jobs:
       - name: Set up tau2-bench at pin
         run: ./scripts/setup_env.sh
 
-      - name: Fixer iteration (diagnose -> apply -> run dev -> keep-if-better)
+      - name: Fixer v2 iteration (diagnose -> apply -> run dev -> keep-if-better)
         working-directory: tau2-bench
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
           uv run python ../harness/fixer.py
-          --iter ${{ inputs.iter }}
-          --dev-results ${{ inputs.dev_results }}
-          --save-to ${{ inputs.save_to }}
+          --rules ${{ inputs.rules }}
+          --init-results ${{ inputs.init_results }}
+          --max-iters ${{ inputs.max_iters }}
+          --prior-logs ${{ inputs.prior_logs }}
 
       - name: Upload results (artifact backup)
         if: always()
@@ -56,17 +65,18 @@ jobs:
           path: tau2-bench/data/simulations/
           if-no-files-found: warn
 
-      - name: Commit rules, log, and results back to repo
+      - name: Commit rules, log, state, and results back to repo
         run: |
           set -euo pipefail
-          git add harness/rules.md harness/fixer_log.md results/ 2>/dev/null || true
+          # Only the fixer's own files: never rules.md, never fixer_log.md.
+          git add "harness/${{ inputs.rules }}" harness/fixer_v2_log.md harness/fixer_v2_state.json results/ 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "Nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fixer iteration ${{ inputs.iter }} (run ${{ github.run_id }})"
+          git commit -m "fixer v2 iteration (run ${{ github.run_id }})"
           for attempt in 1 2 3 4 5; do
             if git push; then
               echo "pushed on attempt ${attempt}"; exit 0

@@ -78,3 +78,47 @@ and tracker rows O7.1–O7.3.
 Deterministic (temp 0/seed 42). A no-signal dev run (`check_results` logic)
 reverts and is logged, never counted as a keep. Malformed fixer JSON gets one
 retry, then the iteration aborts cleanly with the rules unchanged.
+
+---
+
+# Fixer v2 (post-v0 arm)
+
+Everything above describes **fixer v1**, which produced the v0 record
+(`fixer_log.md`: two iterations, both reverted). v2 is a **separate arm**,
+reported separately, never retro-fitted into the v0 result. It exists because
+an audit of v1 found the model was caged and half-blind, not weak:
+
+| v1 defect | v2 fix |
+|---|---|
+| `rules.md` and `fixer_log.md` hardcoded — a v2 run would have **overwritten the frozen v0 artifact** and contaminated v1's log | `--rules` / `--log` explicit; `rules.md` is in a `FROZEN_RULES` set and can never be written |
+| `run_dev` never received the rules file — the fixer would **edit file A and evaluate file B**, silently | rules file passed through the env; the fixer asserts the harness loaded exactly that file before spending credit |
+| `--iter` / `--dev-results` chosen by a human each round — a person steering the loop | **automatic chaining** via `fixer_v2_state.json` (current best, iteration count, history); `--init-results` seeds it once |
+| digest showed searches and final actions but **no tool responses** — the freeze→unfreeze ordering error and the phantom-duplicate-account pathology were invisible | digest is the **ordered trace** of every call → response (errors included), repeats flagged |
+| prompt implied constraints only; both v1 edits were constraints | prompt names the full repertoire: constraints, worked example (fictional placeholders only), procedure, checklist; new `tool_sequencing` category |
+| prior attempts read from a shared path by accident | own log + any `--prior-logs` passed **explicitly** at dispatch, so inheritance is a visible choice |
+
+## Principle
+**A human may author the method; a human never authors the artifact under
+test.** All v2 changes are to the fixer's evidence, affordances, and safety —
+zero characters of harness content. The arm **starts from an empty rules
+file**, so every line of the resulting harness is model-written. The
+human-authored `rules_v1.md` is excluded entirely and kept as the *human
+control* for a human-vs-fixer comparison.
+
+## Digest limits (a documented human design choice)
+`TOOL_RESPONSE_CHARS = 240`, `TOOL_ARGS_CHARS = 120`, `GOAL_CHARS = 300`.
+`KB_search` responses are reduced to the top document ID (full document text
+would swamp the prompt); all other tool responses keep the first 240
+characters, which is enough for an error message or a document header. Applied
+uniformly to every task and every iteration.
+
+## Run plan
+Staged behind a spend gate. **Phase 1:** up to 4 iterations on dev from empty
+(keep-if-better is a ratchet, so extra iterations can only help). **Gate:**
+stop if the best is still 2/10. **Phase 2 (only if it beats 2/10):** freeze,
+expand the pre-registered fresh holdout to 30 tasks (re-frozen before any run —
+legitimate only while untouched), and run no-harness control, the
+fixer-authored harness, and the human-authored `rules_v1.md` head to head.
+`num_trials` is skipped: at temperature 0 repeated trials reproduce the same
+number, and the real uncertainty is task selection, which more tasks address.
+(Determinism is to be verified cheaply before relying on this.)

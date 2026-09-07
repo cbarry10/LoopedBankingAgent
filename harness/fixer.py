@@ -1,37 +1,57 @@
-"""O6 fixer loop — one iteration. See harness/FIXER_SPEC.md.
+"""Fixer v2 — one iteration of the self-improving harness loop. See FIXER_SPEC.md.
 
-The fixed Qwen model diagnoses the agent's dev failures and rewrites ONLY the
-"## Operating rules" section of harness/rules.md. We accept whatever the model
-returns (logging the exact diff), run all 10 dev tasks, and keep the change only
-if the aggregate mean reward strictly improves.
+The fixed Qwen model reads its agent's dev trajectories, diagnoses ONE failure,
+and rewrites the harness rules file. The loop runs all 10 dev tasks with the
+candidate and keeps it only if the aggregate mean reward STRICTLY improves.
 
-Run from tau2-bench/ (cwd), with OPENROUTER_API_KEY set:
-    uv run python ../harness/fixer.py --iter 1 \
-        --dev-results ../results/harness_v0_dev/results.json \
-        --save-to fixer_iter1_dev
+v2 changes vs the fixer that produced the v0 record (fixer v1):
+  * --rules / --log are explicit; rules.md (the frozen v0 artifact) can NEVER
+    be written. The rules file is passed through to the eval, and the fixer
+    asserts the harness actually loaded that file before spending credit.
+  * Iteration chaining is automatic via a state file: no human chooses which
+    results feed the next round.
+  * The digest is an ordered TRACE of every tool call with its arguments AND
+    the response it received (errors included), with repeats flagged. v1 could
+    not see tool responses at all.
+  * The prompt names the full repertoire (constraints, worked example,
+    procedure, checklist); v1 only ever implied constraints.
+  * Prior attempts come from this fixer's own log plus any --prior-logs passed
+    explicitly (e.g. v1's log), so inheritance is a visible dispatch choice.
+
+Run from tau2-bench/ with OPENROUTER_API_KEY set:
+    uv run python ../harness/fixer.py --rules rules_fixer.md \
+        --init-results results/baseline_dev/results.json
 """
 
 import argparse
 import difflib
 import json
+import os
 import re
 import shutil
 import sys
+from collections import Counter, deque
 from pathlib import Path
 
 import litellm
 
+FIXER_VERSION = "2"
 HARNESS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = HARNESS_DIR.parent
-RULES_PATH = HARNESS_DIR / "rules.md"
-LOG_PATH = HARNESS_DIR / "fixer_log.md"
 RESULTS_DIR = REPO_ROOT / "results"
 TAU2_SIM_DIR = Path("data/simulations")  # relative to cwd (tau2-bench)
 RULES_MARKER = "## Operating rules"
+FROZEN_RULES = {"rules.md"}  # O7.3-frozen v0 artifact — never writable
 BAD_TERMINATIONS = {"infrastructure_error", "too_many_errors"}
 
+# Digest limits — a human design choice that bounds what the fixer can see.
+# Documented in FIXER_SPEC.md; applied uniformly to every task and iteration.
+TOOL_RESPONSE_CHARS = 240   # enough for an error message or a doc header
+TOOL_ARGS_CHARS = 120
+GOAL_CHARS = 300
+
 sys.path.insert(0, str(HARNESS_DIR))
-from agent_harness import rules_text  # noqa: E402
+from agent_harness import rules_path, rules_text  # noqa: E402
 from run_harness import LLM_ARGS, MODEL, register, run_dev, self_check  # noqa: E402
 
 
@@ -44,12 +64,10 @@ def reward_of(sim: dict):
 
 
 def has_signal(sims: list) -> bool:
-    if not sims:
-        return False
-    for s in sims:
-        if s.get("termination_reason") in BAD_TERMINATIONS or reward_of(s) is None:
-            return False
-    return True
+    return bool(sims) and all(
+        s.get("termination_reason") not in BAD_TERMINATIONS and reward_of(s) is not None
+        for s in sims
+    )
 
 
 def mean_reward(sims: list) -> float:
@@ -60,111 +78,119 @@ def passes(sims: list) -> int:
     return sum(1 for s in sims if reward_of(s) == 1.0)
 
 
-# ---------- digest ----------
-
-def _query_of(tc: dict) -> str:
-    fn = tc.get("function") or {}
-    args = fn.get("arguments", tc.get("arguments"))
-    if isinstance(args, str):
-        try:
-            args = json.loads(args)
-        except Exception:
-            return args
-    if isinstance(args, dict):
-        return str(args.get("query", args))
-    return str(args)
-
+# ---------- digest (v2: ordered trace with responses) ----------
 
 def _name_of(tc: dict) -> str:
     fn = tc.get("function") or {}
     return fn.get("name") or tc.get("name") or "?"
 
 
+def _args_of(tc: dict) -> str:
+    fn = tc.get("function") or {}
+    a = fn.get("arguments", tc.get("arguments"))
+    return a if isinstance(a, str) else json.dumps(a, sort_keys=True)
+
+
+def _query_of(args: str) -> str:
+    try:
+        d = json.loads(args)
+        return str(d.get("query", d)) if isinstance(d, dict) else args
+    except Exception:
+        return args
+
+
 def digest(sim: dict) -> str:
-    tid = sim.get("task_id")
+    """Goal + the ordered trace of every tool call -> response, repeats flagged."""
     msgs = sim.get("messages") or []
     goal = ""
-    searches: list[list] = []  # [query, top_doc_id]
-    actions: list[str] = []
+    events, pending = [], deque()
     for m in msgs:
         if m.get("role") == "user" and not goal and m.get("content"):
             goal = str(m["content"]).strip().replace("\n", " ")
         for tc in m.get("tool_calls") or []:
-            name = _name_of(tc)
-            if name == "KB_search":
-                searches.append([_query_of(tc), "(pending)"])
-            else:
-                fn = tc.get("function") or {}
-                actions.append(f"{name}({fn.get('arguments', tc.get('arguments'))})")
-        if m.get("role") == "tool" and searches and searches[-1][1] == "(pending)":
-            content = str(m.get("content") or "")
-            hit = re.search(r"ID:\s*(doc_[\w()\-]+)", content)
-            searches[-1][1] = hit.group(1) if hit else "(no doc)"
+            ev = {"name": _name_of(tc), "args": _args_of(tc), "resp": None}
+            events.append(ev)
+            pending.append(ev)
+        if m.get("role") == "tool" and pending:
+            pending.popleft()["resp"] = str(m.get("content") or "")
 
     out = [
-        f"TASK {tid} | reward={reward_of(sim)} | termination={sim.get('termination_reason')}",
-        f"  goal: {goal[:300]}",
-        "  searches:",
+        f"TASK {sim.get('task_id')} | reward={reward_of(sim)} | termination={sim.get('termination_reason')}",
+        f"  goal: {goal[:GOAL_CHARS]}",
+        "  trace (in order):",
     ]
-    out += [f"    - {q!r} -> {doc}" for q, doc in searches] or ["    (none)"]
-    if actions:
-        out += ["  actions:"] + [f"    - {a[:200]}" for a in actions]
+    seen: Counter = Counter()
+    for ev in events:
+        key = (ev["name"], ev["args"])
+        seen[key] += 1
+        rep = f"  [REPEAT x{seen[key]}]" if seen[key] > 1 else ""
+        resp = (ev["resp"] or "").replace("\n", " ")
+        if ev["name"] == "KB_search":
+            hit = re.search(r"ID:\s*(doc_[\w()\-]+)", resp)
+            out.append(f"    - KB_search({_query_of(ev['args'])!r}) -> {hit.group(1) if hit else '(no doc)'}{rep}")
+        else:
+            out.append(f"    - {ev['name']}({ev['args'][:TOOL_ARGS_CHARS]}) -> {resp[:TOOL_RESPONSE_CHARS] or '(no response)'}{rep}")
+    if not events:
+        out.append("    (no tool calls)")
     return "\n".join(out)
+
+
+# ---------- prior attempts ----------
+
+def attempts_from_log(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    blocks = re.findall(
+        r"## Iteration (\d+)[^\n]*— category: (.+?) — kept: (\w+)(.*?)(?=\n## Iteration |\Z)",
+        path.read_text(), re.S,
+    )
+    out = []
+    for it, cat, kept, body in blocks:
+        chg = re.search(r"- change: (.+)", body)
+        cand = re.search(r"- candidate: (.+)", body)
+        out.append(
+            f"- [{path.name}] iteration {it}: category={cat.strip()}; result={cand.group(1).strip() if cand else '?'}; "
+            f"kept={kept}; change tried: {chg.group(1).strip() if chg else '?'}"
+        )
+    return out
 
 
 # ---------- fixer LLM call ----------
 
-SYSTEM = """You improve a customer-service AI agent for a bank. The agent answers customers using a knowledge base (KB) it queries with KB_search, and it takes account actions. You improve it by rewriting ONE section of its rulebook — the "## Operating rules" section appended to its system prompt. You cannot change the model, tools, retrieval, or anything else.
+SYSTEM = """You improve a customer-service AI agent for a bank. The agent answers customers using a knowledge base (KB) it queries with KB_search, and it takes account actions through tools — some of which must first be unlocked with unlock_discoverable_agent_tool and then invoked with call_discoverable_agent_tool. You improve the agent by rewriting ONE section of its rulebook — the "## Operating rules" section appended to its system prompt. You cannot change the model, tools, retrieval, or anything else.
 
-For each of 10 development tasks you are shown what the agent did: the customer's goal, every KB_search query and the top document it retrieved, the final action, and the reward (1.0 = success, 0.0 = failure) with the termination reason. You do NOT see the correct answers.
+For each of 10 development tasks you are shown what the agent did: the customer's goal, then the ORDERED TRACE of every tool call with its arguments and the response it received — including error messages — with repeated calls flagged. You also see the reward (1.0 = success, 0.0 = failure) and the termination reason (max_steps = ran out of its 50-step budget without finishing). You do NOT see the correct answers.
 
-Diagnose the SINGLE most important recurring failure, then make ONE targeted change to the rules that fixes it WITHOUT breaking tasks that already succeed. Failure categories:
-- search_timing: searches too late or not before deciding
+Diagnose the SINGLE most important recurring failure, then make ONE targeted change that fixes it WITHOUT breaking tasks that already succeed. Failure categories:
+- search_timing: searches too late, or decides before searching
 - search_coverage: fails to retrieve a fact it needs (under-searching)
 - search_precision: queries keep retrieving the wrong documents
-- reasoning: has the facts but reasons/decides wrongly
+- tool_sequencing: wrong order of actions, or redundant/duplicate calls that waste the step budget
+- reasoning: has the facts but reasons or decides wrongly
 - action: takes a wrong or unsupported account action
+
+The rules section may take whatever FORM the evidence calls for: plain constraints; a short worked example that demonstrates the intended pattern (if you write one, use fictional placeholder products and never a real task's specifics); a step-by-step procedure for a tool sequence; or a checklist. Pick the form most likely to change the behaviour you diagnosed.
 
 Return ONLY a JSON object, no prose, no code fences:
 {"primary_failure_category": "<one category>", "diagnosis": "<one paragraph citing task IDs and evidence>", "change_summary": "<one sentence>", "updated_rules_section": "<the FULL new '## Operating rules' section in markdown>"}"""
 
 
-def prior_attempts_text() -> str:
-    """Summarize earlier iterations from fixer_log.md so the (deterministic)
-    fixer explores a NEW hypothesis instead of repeating a reverted one."""
-    if not LOG_PATH.exists():
-        return ""
-    text = LOG_PATH.read_text()
-    blocks = re.findall(
-        r"## Iteration (\d+) — category: (.+?) — kept: (\w+)(.*?)(?=\n## Iteration |\Z)",
-        text, re.S,
-    )
-    lines = []
-    for it, cat, kept, body in blocks:
-        chg = re.search(r"- change: (.+)", body)
-        cand = re.search(r"- candidate: (.+)", body)
-        lines.append(
-            f"- Iteration {it}: category={cat.strip()}; result={cand.group(1).strip() if cand else '?'}; "
-            f"kept={kept}; change tried: {chg.group(1).strip() if chg else '?'}"
-        )
-    return "\n".join(lines)
-
-
-def call_fixer(current_section: str, digests: str, base_mean: float, base_pass: int) -> str:
-    prior = prior_attempts_text()
+def call_fixer(current_section: str, digests: str, base_mean: float, base_pass: int, prior: list[str]) -> str:
     prior_block = (
         "\nPREVIOUS ATTEMPTS (already tried; these did NOT strictly improve the score — "
-        "do NOT repeat them; choose a DIFFERENT primary failure and a different fix):\n"
-        f"{prior}\n" if prior else ""
-    )
+        "do NOT repeat them; choose a different primary failure and a different fix):\n"
+        + "\n".join(prior) + "\n"
+    ) if prior else ""
+    section = current_section.strip() or "(EMPTY — the agent currently runs with no rules at all)"
     user = (
-        f"CURRENT RULES SECTION:\n{current_section}\n\n"
+        f"CURRENT RULES SECTION:\n{section}\n\n"
         f"DEV TASK RESULTS (10 tasks):\n{digests}\n"
         f"{prior_block}\n"
         f"Aggregate: {base_pass}/10 passed (mean reward {base_mean:.2f}). Improve this."
     )
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
-    for attempt in (1, 2):
+    text = ""
+    for _ in (1, 2):
         resp = litellm.completion(
             model=MODEL, messages=messages, temperature=LLM_ARGS["temperature"],
             seed=LLM_ARGS["seed"], max_tokens=4000,
@@ -187,95 +213,142 @@ def _extract_json(text: str):
         return None
 
 
+# ---------- state (automatic chaining) ----------
+
+def load_state(path: Path, init_results: str | None, rules: str) -> dict:
+    if path.is_file():
+        st = json.loads(path.read_text())
+        if st.get("rules") != rules:
+            raise SystemExit(f"state file is for rules={st.get('rules')!r}, not {rules!r} — refusing to mix arms")
+        return st
+    if not init_results:
+        raise SystemExit("no state file yet: --init-results is required to seed the current best")
+    p = REPO_ROOT / init_results
+    sims = json.loads(p.read_text())["simulations"]
+    return {
+        "fixer_version": FIXER_VERSION,
+        "rules": rules,
+        "iteration": 0,
+        "best_results": init_results,
+        "best_mean": mean_reward(sims),
+        "best_pass": passes(sims),
+        "history": [],
+    }
+
+
 # ---------- main ----------
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Run one fixer iteration")
-    p.add_argument("--iter", type=int, required=True)
-    p.add_argument("--dev-results", required=True, help="current-best dev results.json (repo-relative or absolute)")
-    p.add_argument("--save-to", required=True, help="label for this iteration's dev run")
+    p = argparse.ArgumentParser(description="Run one fixer v2 iteration")
+    p.add_argument("--rules", required=True, help="rules file in harness/ to read+write (NOT rules.md)")
+    p.add_argument("--log", default="fixer_v2_log.md", help="this fixer's change log in harness/")
+    p.add_argument("--state", default="fixer_v2_state.json", help="chaining state in harness/")
+    p.add_argument("--init-results", default=None, help="repo-relative results.json to seed the current best (first run only)")
+    p.add_argument("--prior-logs", nargs="*", default=[], help="extra logs whose attempts are shown to the fixer")
+    p.add_argument("--max-iters", type=int, default=4)
     args = p.parse_args()
 
-    dev_path = Path(args.dev_results)
-    if not dev_path.is_absolute():
-        dev_path = (REPO_ROOT / dev_path).resolve()
-    dev = json.loads(dev_path.read_text())
-    sims = dev["simulations"]
-    task_ids = sorted(s["task_id"] for s in sims)
-    base_mean, base_pass = mean_reward(sims), passes(sims)
-    print(f"[fixer] iteration {args.iter} | baseline {base_pass}/10 (mean {base_mean:.2f}) | tasks {task_ids}")
+    if args.rules in FROZEN_RULES:
+        raise SystemExit(f"{args.rules} is the frozen v0 artifact and can never be written by the fixer")
+    rules_file = HARNESS_DIR / args.rules
+    log_path = HARNESS_DIR / args.log
+    state_path = HARNESS_DIR / args.state
+    os.environ["HARNESS_RULES_FILE"] = args.rules  # passthrough to the eval (v1 defect A3)
 
-    full_before = RULES_PATH.read_text()
+    st = load_state(state_path, args.init_results, args.rules)
+    it = st["iteration"] + 1
+    if it > args.max_iters:
+        print(f"[fixer] iteration {it} exceeds --max-iters {args.max_iters}; stopping.")
+        return 0
+    best = json.loads((REPO_ROOT / st["best_results"]).read_text())["simulations"]
+    base_mean, base_pass = st["best_mean"], st["best_pass"]
+    task_ids = sorted(s["task_id"] for s in best)
+    save_to = f"fixer{FIXER_VERSION}_iter{it}_dev"
+    print(f"[fixer v{FIXER_VERSION}] iteration {it} | rules={args.rules} | current best {base_pass}/10 ({base_mean:.2f}) from {st['best_results']}")
+
+    if rules_file.is_file():
+        full_before = rules_file.read_text()
+    else:  # empty start: the fixer authors the whole section; this header never reaches the agent
+        full_before = (
+            f"# Harness rules — fixer-authored (fixer v{FIXER_VERSION})\n\n"
+            "Every line under the heading below was written by the fixer. No human-authored rules.\n\n"
+            f"{RULES_MARKER}\n"
+        )
     idx = full_before.find(RULES_MARKER)
     meta = full_before[:idx] if idx != -1 else full_before
-    current_section = full_before[idx:] if idx != -1 else full_before
+    current_section = full_before[idx + len(RULES_MARKER):] if idx != -1 else ""
 
-    digests = "\n\n".join(digest(s) for s in sims)
-    raw = call_fixer(current_section, digests, base_mean, base_pass)
+    digests = "\n\n".join(digest(s) for s in best)
+    prior = attempts_from_log(log_path) + [
+        a for extra in args.prior_logs for a in attempts_from_log(HARNESS_DIR / extra)
+    ]
+    raw = call_fixer(current_section, digests, base_mean, base_pass, prior)
     parsed = _extract_json(raw)
     if parsed is None:
-        print("[fixer] ABORT: fixer did not return valid JSON after retry.", file=sys.stderr)
-        _log(args.iter, "?", "(no valid JSON returned)", "(none)", base_mean, base_pass, None, None, False, "", "invalid JSON — aborted, rules unchanged")
+        print("[fixer] ABORT: no valid JSON after retry; rules unchanged.", file=sys.stderr)
+        _log(log_path, it, "?", "(no valid JSON)", "(none)", base_mean, base_pass, None, None, False, "", "invalid JSON — aborted")
         return 1
 
     category = parsed.get("primary_failure_category", "?")
-    diagnosis = parsed.get("diagnosis", "").strip()
-    summary = parsed.get("change_summary", "").strip()
+    diagnosis = (parsed.get("diagnosis") or "").strip()
+    summary = (parsed.get("change_summary") or "").strip()
     new_section = (parsed.get("updated_rules_section") or "").strip()
+    if new_section.startswith(RULES_MARKER):
+        new_section = new_section[len(RULES_MARKER):].strip()
 
-    # Accept whatever the model returned; write it verbatim.
-    full_after = meta + new_section + "\n"
-    RULES_PATH.write_text(full_after)
+    full_after = f"{meta}{RULES_MARKER}\n\n{new_section}\n"
+    rules_file.write_text(full_after)  # accept whatever the model returned, verbatim
     diff = "".join(difflib.unified_diff(
-        current_section.splitlines(keepends=True),
-        (new_section + "\n").splitlines(keepends=True),
-        fromfile="rules.md (before)", tofile="rules.md (after)",
+        full_before.splitlines(keepends=True), full_after.splitlines(keepends=True),
+        fromfile=f"{args.rules} (before)", tofile=f"{args.rules} (after)",
     ))
 
-    # Guard: if the returned rules are empty/unusable, revert without spending credit.
-    if len(rules_text()) < 40:
-        RULES_PATH.write_text(full_before)
-        note = "empty/invalid rules returned — reverted, no dev run"
-        print(f"[fixer] {note}")
-        _log(args.iter, category, diagnosis, summary, base_mean, base_pass, None, None, False, diff, note)
+    def finish(kept: bool, cand_mean, cand_pass, note: str, results_label: str | None) -> int:
+        st["iteration"] = it
+        st["history"].append({"iteration": it, "category": category, "kept": kept,
+                              "candidate_mean": cand_mean, "note": note})
+        if kept:
+            st["best_results"] = f"results/{results_label}/results.json"
+            st["best_mean"], st["best_pass"] = cand_mean, cand_pass
+        state_path.write_text(json.dumps(st, indent=2) + "\n")
+        _log(log_path, it, category, diagnosis, summary, base_mean, base_pass, cand_mean, cand_pass, kept, diff, note)
+        print(f"[fixer] iteration {it}: {note}")
         return 0
 
-    # Run all 10 dev tasks with the candidate rules.
+    if len(rules_text()) < 40:
+        rules_file.write_text(full_before)  # for an empty start this restores the header-only file
+        return finish(False, None, None, "empty/invalid rules returned — reverted, no dev run", None)
+
     register()
     self_check()
-    print(f"[fixer] running {len(task_ids)} dev tasks with candidate rules -> {args.save_to}")
-    run_dev("llm_agent_harness", task_ids, args.save_to)
+    if rules_path().name != args.rules:  # belt and braces on defect A3
+        raise SystemExit(f"harness loaded {rules_path().name}, expected {args.rules} — aborting before eval")
 
-    cand = json.loads((TAU2_SIM_DIR / args.save_to / "results.json").read_text())
-    csims = cand["simulations"]
+    print(f"[fixer] running {len(task_ids)} dev tasks with candidate rules -> {save_to}")
+    run_dev("llm_agent_harness", task_ids, save_to)
+    csims = json.loads((TAU2_SIM_DIR / save_to / "results.json").read_text())["simulations"]
 
     if not has_signal(csims):
-        RULES_PATH.write_text(full_before)
-        note = "candidate dev run had no signal (infrastructure error) — reverted"
-        print(f"[fixer] {note}")
-        _log(args.iter, category, diagnosis, summary, base_mean, base_pass, None, None, False, diff, note)
-        return 0
+        rules_file.write_text(full_before)
+        return finish(False, None, None, "candidate run had no signal (infrastructure error) — reverted", None)
 
     cand_mean, cand_pass = mean_reward(csims), passes(csims)
-    kept = cand_mean > base_mean
-    # Keep the candidate results in the repo for the record (kept or reverted).
     RESULTS_DIR.mkdir(exist_ok=True)
-    shutil.copytree(TAU2_SIM_DIR / args.save_to, RESULTS_DIR / args.save_to, dirs_exist_ok=True)
+    shutil.copytree(TAU2_SIM_DIR / save_to, RESULTS_DIR / save_to, dirs_exist_ok=True)
+    kept = cand_mean > base_mean
     if not kept:
-        RULES_PATH.write_text(full_before)
-
-    note = "kept (strict improvement)" if kept else f"reverted (no strict improvement: {cand_mean:.2f} <= {base_mean:.2f})"
-    print(f"[fixer] candidate {cand_pass}/10 (mean {cand_mean:.2f}) vs baseline {base_pass}/10 ({base_mean:.2f}) -> {'KEEP' if kept else 'REVERT'}")
-    _log(args.iter, category, diagnosis, summary, base_mean, base_pass, cand_mean, cand_pass, kept, diff, note)
-    return 0
+        rules_file.write_text(full_before)
+    note = (f"KEPT — {cand_pass}/10 ({cand_mean:.2f}) > {base_pass}/10 ({base_mean:.2f})" if kept
+            else f"reverted — {cand_pass}/10 ({cand_mean:.2f}) <= {base_pass}/10 ({base_mean:.2f})")
+    return finish(kept, cand_mean, cand_pass, note, save_to)
 
 
-def _log(it, category, diagnosis, summary, bmean, bpass, cmean, cpass, kept, diff, note):
-    if not LOG_PATH.exists():
-        LOG_PATH.write_text("# Fixer change log\n\nOne entry per fixer iteration. See harness/FIXER_SPEC.md.\n")
+def _log(path, it, category, diagnosis, summary, bmean, bpass, cmean, cpass, kept, diff, note):
+    if not path.exists():
+        path.write_text(f"# Fixer v{FIXER_VERSION} change log\n\nOne entry per iteration. See harness/FIXER_SPEC.md (v2 section).\n")
     cand_line = f"{cpass}/10 (mean {cmean:.2f})" if cmean is not None else "— (not run / reverted)"
     entry = [
-        f"\n## Iteration {it} — category: {category} — kept: {kept}",
+        f"\n## Iteration {it} (fixer v{FIXER_VERSION}) — category: {category} — kept: {kept}",
         f"- baseline: {bpass}/10 (mean {bmean:.2f})",
         f"- candidate: {cand_line}",
         f"- outcome: {note}",
@@ -287,7 +360,7 @@ def _log(it, category, diagnosis, summary, bmean, bpass, cmean, cpass, kept, dif
         "```",
         "",
     ]
-    with LOG_PATH.open("a") as f:
+    with path.open("a") as f:
         f.write("\n".join(entry))
 
 
