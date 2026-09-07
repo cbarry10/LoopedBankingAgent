@@ -129,10 +129,38 @@ Return ONLY a JSON object, no prose, no code fences:
 {"primary_failure_category": "<one category>", "diagnosis": "<one paragraph citing task IDs and evidence>", "change_summary": "<one sentence>", "updated_rules_section": "<the FULL new '## Operating rules' section in markdown>"}"""
 
 
+def prior_attempts_text() -> str:
+    """Summarize earlier iterations from fixer_log.md so the (deterministic)
+    fixer explores a NEW hypothesis instead of repeating a reverted one."""
+    if not LOG_PATH.exists():
+        return ""
+    text = LOG_PATH.read_text()
+    blocks = re.findall(
+        r"## Iteration (\d+) — category: (.+?) — kept: (\w+)(.*?)(?=\n## Iteration |\Z)",
+        text, re.S,
+    )
+    lines = []
+    for it, cat, kept, body in blocks:
+        chg = re.search(r"- change: (.+)", body)
+        cand = re.search(r"- candidate: (.+)", body)
+        lines.append(
+            f"- Iteration {it}: category={cat.strip()}; result={cand.group(1).strip() if cand else '?'}; "
+            f"kept={kept}; change tried: {chg.group(1).strip() if chg else '?'}"
+        )
+    return "\n".join(lines)
+
+
 def call_fixer(current_section: str, digests: str, base_mean: float, base_pass: int) -> str:
+    prior = prior_attempts_text()
+    prior_block = (
+        "\nPREVIOUS ATTEMPTS (already tried; these did NOT strictly improve the score — "
+        "do NOT repeat them; choose a DIFFERENT primary failure and a different fix):\n"
+        f"{prior}\n" if prior else ""
+    )
     user = (
         f"CURRENT RULES SECTION:\n{current_section}\n\n"
-        f"DEV TASK RESULTS (10 tasks):\n{digests}\n\n"
+        f"DEV TASK RESULTS (10 tasks):\n{digests}\n"
+        f"{prior_block}\n"
         f"Aggregate: {base_pass}/10 passed (mean reward {base_mean:.2f}). Improve this."
     )
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]

@@ -55,8 +55,11 @@ search-and-retrieve trace, not in the score.
 
 ## Iteration control
 Exactly **2 iterations**. Iteration 2 starts from iteration 1's kept config (or
-from v0 if 1 reverted). After iteration 2, **freeze `rules.md`** (O7.3) — no
-edits before the held-out test.
+from v0 if 1 reverted). Because the fixer is deterministic (temp 0/seed 42),
+each iteration is shown a summary of **prior attempts** from `fixer_log.md`, so
+it explores a new hypothesis rather than deterministically repeating a reverted
+one. After iteration 2, **freeze `rules.md`** (O7.3) — no edits before the
+held-out test.
 
 ## Execution
 Both the fixer call and the dev re-run need OpenRouter, so this runs in CI
