@@ -23,6 +23,10 @@ on:
         description: "Agent-side reasoning: default (v0 behaviour; model reasons by default) | disabled | low | medium | high"
         required: false
         default: "default"
+      top_k:
+        description: "Docs returned per KB_search. 10 = v0 default; lower values are a separate (environment) arm"
+        required: false
+        default: "10"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -61,12 +65,19 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: uv run python ../harness/probe_reasoning.py ${{ inputs.reasoning }}
 
+      # Free, offline: prove the retrieval knob actually changed what comes back.
+      - name: Probe retrieval top_k delta
+        if: inputs.top_k != '10'
+        working-directory: tau2-bench
+        run: uv run python ../harness/probe_retrieval.py ${{ inputs.top_k }}
+
       - name: Scored eval run
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           AGENT: ${{ inputs.agent }}
           RUNNER: ${{ inputs.runner }}
           REASONING: ${{ inputs.reasoning }}
+          TOP_K: ${{ inputs.top_k }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

@@ -88,10 +88,25 @@ def self_check() -> None:
     print("[self-check] PASS: harness agent is active.")
 
 
-def run_dev(agent: str, task_ids: list[str], save_to: str, reasoning: str | None = None):
-    """Run the given task IDs. Only the agent's LLM args change between arms."""
+def run_dev(
+    agent: str,
+    task_ids: list[str],
+    save_to: str,
+    reasoning: str | None = None,
+    top_k: int = 10,
+):
+    """Run the given task IDs under the frozen controls.
+
+    top_k is retrieval breadth (documents returned per KB_search). v0 used the
+    tau2 default of 10; changing it is an ENVIRONMENT change, so it defines a
+    separate arm rather than a harness variant. Left at 10 it reproduces v0.
+    """
     a_args = agent_llm_args(reasoning)
-    print(f"[run] agent={agent} | agent llm_args={a_args} | user llm_args={LLM_ARGS}")
+    r_kwargs = {"top_k": top_k} if top_k != 10 else None
+    print(
+        f"[run] agent={agent} | agent llm_args={a_args} | user llm_args={LLM_ARGS} "
+        f"| retrieval_config_kwargs={r_kwargs}"
+    )
     cfg = TextRunConfig(
         domain="banking_knowledge",
         agent=agent,
@@ -101,6 +116,7 @@ def run_dev(agent: str, task_ids: list[str], save_to: str, reasoning: str | None
         llm_user=MODEL,
         llm_args_user=dict(LLM_ARGS),  # environment held fixed across arms
         retrieval_config="bm25",
+        retrieval_config_kwargs=r_kwargs,
         max_steps=50,
         max_errors=10,
         num_trials=1,
@@ -127,13 +143,22 @@ def main() -> None:
         choices=list(REASONING_MODES),
         help="agent-side reasoning mode; 'default' reproduces every v0 result (the model reasons by default)",
     )
+    p.add_argument(
+        "--top-k",
+        type=int,
+        default=10,
+        help="documents returned per KB_search; 10 = v0 default (environment change -> separate arm)",
+    )
     args = p.parse_args()
 
     if args.agent == "llm_agent_harness":
         register()
         self_check()
 
-    run_dev(args.agent, args.task_ids, args.save_to, reasoning=args.reasoning)
+    run_dev(
+        args.agent, args.task_ids, args.save_to,
+        reasoning=args.reasoning, top_k=args.top_k,
+    )
     print(f"Results: data/simulations/{args.save_to}/results.json")
 
 

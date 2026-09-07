@@ -1,0 +1,66 @@
+name: verify
+
+# Offline checks — NO API key, NO model calls, zero OpenRouter spend.
+# Verifies environment integrity and the retrieval knob, and (optionally)
+# freezes the fresh v2 held-out split before any headline run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      top_k:
+        description: "top_k to verify against the v0 control of 10"
+        required: false
+        default: "3"
+      freeze_holdout:
+        description: "Also generate + commit configs/tasks_holdout_v2.yaml (pre-registered fresh split)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: tau2-eval
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up tau2-bench at pin
+        run: ./scripts/setup_env.sh
+
+      - name: Environment validation (97 tasks / 698 docs / bm25)
+        working-directory: tau2-bench
+        run: uv run python ../scripts/validate_env.py
+
+      - name: Probe retrieval top_k delta
+        working-directory: tau2-bench
+        run: uv run python ../harness/probe_retrieval.py ${{ inputs.top_k }}
+
+      - name: Freeze fresh held-out split (v2)
+        if: inputs.freeze_holdout == 'true'
+        working-directory: tau2-bench
+        run: uv run python ../scripts/select_fresh_holdout.py
+
+      - name: Commit frozen split
+        if: inputs.freeze_holdout == 'true'
+        run: |
+          set -euo pipefail
+          git add configs/tasks_holdout_v2.yaml
+          if git diff --cached --quiet; then echo "No change."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Freeze fresh v2 held-out split (pre-registered, unused tasks only)"
+          for a in 1 2 3 4 5; do
+            if git push; then echo "pushed"; exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1
