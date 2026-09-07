@@ -31,6 +31,10 @@ on:
         description: "Harness rules file: rules.md (frozen v0) | rules_v1.md (demonstration arm)"
         required: false
         default: "rules.md"
+      trials:
+        description: "num_trials per task. >1 averages run-to-run noise (runs are NOT deterministic). 3 = 30 executions on 10 tasks."
+        required: false
+        default: "1"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -83,6 +87,7 @@ jobs:
           REASONING: ${{ inputs.reasoning }}
           TOP_K: ${{ inputs.top_k }}
           RULES: ${{ inputs.rules }}
+          TRIALS: ${{ inputs.trials }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

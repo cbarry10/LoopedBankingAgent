@@ -95,6 +95,7 @@ def run_dev(
     save_to: str,
     reasoning: str | None = None,
     top_k: int = 10,
+    trials: int = 1,
 ):
     """Run the given task IDs under the frozen controls.
 
@@ -106,7 +107,8 @@ def run_dev(
     r_kwargs = {"top_k": top_k} if top_k != 10 else None
     print(
         f"[run] agent={agent} | agent llm_args={a_args} | user llm_args={LLM_ARGS} "
-        f"| retrieval_config_kwargs={r_kwargs}"
+        f"| retrieval_config_kwargs={r_kwargs} | num_trials={trials} "
+        f"| executions={len(task_ids) * trials}"
     )
     cfg = TextRunConfig(
         domain="banking_knowledge",
@@ -120,7 +122,7 @@ def run_dev(
         retrieval_config_kwargs=r_kwargs,
         max_steps=50,
         max_errors=10,
-        num_trials=1,
+        num_trials=trials,
         max_concurrency=1,
         seed=42,
         task_ids=list(task_ids),
@@ -150,6 +152,12 @@ def main() -> None:
         help="harness rules file to append (rules.md = frozen v0; rules_v1.md = demonstration arm)",
     )
     p.add_argument(
+        "--trials",
+        type=int,
+        default=1,
+        help="num_trials per task. >1 averages run-to-run noise (the runs are NOT deterministic)",
+    )
+    p.add_argument(
         "--top-k",
         type=int,
         default=10,
@@ -164,7 +172,7 @@ def main() -> None:
 
     run_dev(
         args.agent, args.task_ids, args.save_to,
-        reasoning=args.reasoning, top_k=args.top_k,
+        reasoning=args.reasoning, top_k=args.top_k, trials=args.trials,
     )
     print(f"Results: data/simulations/{args.save_to}/results.json")
 
