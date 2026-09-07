@@ -119,6 +119,26 @@ stop if the best is still 2/10. **Phase 2 (only if it beats 2/10):** freeze,
 expand the pre-registered fresh holdout to 30 tasks (re-frozen before any run —
 legitimate only while untouched), and run no-harness control, the
 fixer-authored harness, and the human-authored `rules_v1.md` head to head.
-`num_trials` is skipped: at temperature 0 repeated trials reproduce the same
-number, and the real uncertainty is task selection, which more tasks address.
-(Determinism is to be verified cheaply before relying on this.)
+**CORRECTED 09-07 — the runs are NOT deterministic.** The determinism check was
+run and it failed. Three replicate pairs (same config, same task, temp 0.0,
+seed 42) diverged at the *first* tool call, and in one pair the reward itself
+flipped (`task_001` under harness v0: 0.0 in one run, 1.0 in another). The
+provider (vLLM backend) does not honour the seed.
+
+Consequences, which supersede the earlier plan:
+- The prior justification for skipping `num_trials` ("repeat trials reproduce
+  the same number") is **false** and is withdrawn.
+- A ±1 task difference at n=10 is **inside the run-to-run noise floor**, so the
+  measured ladder (control 2/10 · harness v0 2/10 · harness v1 3/10) is not
+  yet distinguishable from noise, and the fixer v1 reverts (1/10 vs 2/10) may
+  themselves have been unlucky draws.
+- **The keep-if-better gate is unreliable as built**: it compares two single
+  samples and can both keep bad changes and revert good ones.
+- Fix: `num_trials >= 3`, which averages per-task luck *and* turns each task's
+  reward from binary into {0, .33, .67, 1.0} — also solving the separate
+  problem that the gate was too coarse to see sub-task improvements.
+- Before spending the iteration budget, measure the noise floor: one dispatch,
+  baseline config, 10 dev tasks, `num_trials=3` = 30 executions (~$6, ~2.5h),
+  which yields three independent 10-task scores plus per-task flip rates.
+- A 3-trial iteration takes ~2.5h, exceeding `fixer.yml`'s 180-minute timeout;
+  raise it to 300 before running one.
