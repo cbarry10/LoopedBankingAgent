@@ -1,0 +1,14 @@
+# FRESH held-out set v2 — FROZEN by scripts/select_fresh_holdout.py (seed 4242).
+# Drawn only from DB-reward tasks never used in v0 (dev/test excluded).
+# Pre-registered: committed before any v2 headline run. Do not edit by hand.
+tasks:
+  - task_015  # credit_cards / low (2 actions, 5 docs)
+  - task_016  # credit_cards / low (2 actions, 3 docs)
+  - task_022  # credit_cards / mid (12 actions, 13 docs)
+  - task_048  # credit_cards / high (24 actions, 10 docs)
+  - task_055  # bank_accounts / mid (8 actions, 8 docs)
+  - task_081  # bank_accounts / high (37 actions, 13 docs)
+  - task_087  # bank_accounts / high (20 actions, 10 docs)
+  - task_093  # savings_accounts / mid (9 actions, 11 docs)
+  - task_100  # business / low (4 actions, 12 docs)
+  - task_101  # checking_accounts / low (4 actions, 21 docs)
