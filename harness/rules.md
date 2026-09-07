@@ -3,6 +3,12 @@
 Appended to the agent system prompt by the harness agent variant.
 BASELINE = this file empty of rules. The fixer loop edits ONLY this file.
 
+FROZEN 2026-09-06 (O7.3). Both fixer iterations reverted — iteration 1
+(search_precision) and iteration 2 (action) each dropped dev to 1/10 (0.10)
+vs. v0's 2/10 (0.20), so keep-if-better rejected them. Frozen config = Harness
+v0. No edits before the held-out test. (This note is above the rules section
+and does not change the agent's prompt.)
+
 ## Operating rules
 
 You are a banking customer-support agent. A knowledge base (KB) holds the
