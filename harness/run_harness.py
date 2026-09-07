@@ -2,15 +2,23 @@
 
 A fresh `tau2 run` subprocess would not see our runtime-registered agent, so we
 register `llm_agent_harness` on tau2's global registry and then call run_domain
-directly. Controls mirror configs/model.yaml EXACTLY — only the agent differs
-from the baseline, which is the experiment's single independent variable.
+directly.
 
-Run from tau2-bench/ (like validate_env.py):
-    uv run python ../harness/run_harness.py --save-to <label> task_001 [task_002 ...]
-    uv run python ../harness/run_harness.py --agent llm_agent --save-to <label> task_001
-Requires OPENROUTER_API_KEY in the environment.
+ARMS
+----
+v0 (frozen, reported): agent + user sim both at temperature 0.0, seed 42, no
+    reasoning. This is the configuration behind every result in results/.
+v1 (reasoning arm): reasoning enabled on the AGENT ONLY. The user simulator is
+    part of the environment — changing it would alter task difficulty and
+    confound the comparison against the v0 baseline — so it stays at temp 0.0.
+    Qwen advises against greedy decoding in thinking mode (it degenerates into
+    repetition), so the agent uses vendor-recommended sampling when reasoning
+    is on. This couples two controls on purpose; see harness/FUTURE_OPTIONS.md.
 
-Also imported by harness/fixer.py for run_dev() and self_check().
+Run from tau2-bench/:
+    uv run python ../harness/run_harness.py --save-to <label> task_001 ...
+    uv run python ../harness/run_harness.py --agent llm_agent --reasoning medium --save-to <label> task_001
+Requires OPENROUTER_API_KEY.
 """
 
 import argparse
@@ -23,19 +31,27 @@ from tau2.run import run_domain
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent_harness import HarnessLLMAgent, register, rules_text  # noqa: E402
 
-# Frozen controls — keep in sync with configs/model.yaml
+# Frozen v0 controls — keep in sync with configs/model.yaml
 MODEL = "openrouter/qwen/qwen3.8-27b"
 LLM_ARGS = {"temperature": 0.0, "seed": 42}
+
+# v1 reasoning arm, agent only. Vendor-recommended sampling for thinking mode.
+REASONING_AGENT_ARGS = {"temperature": 0.6, "top_p": 0.95, "seed": 42}
+
+
+def agent_llm_args(reasoning: str | None) -> dict:
+    """LLM args for the agent. reasoning: None/'off' | 'low' | 'medium' | 'high'."""
+    if not reasoning or reasoning == "off":
+        return dict(LLM_ARGS)
+    args = dict(REASONING_AGENT_ARGS)
+    args["reasoning_effort"] = reasoning
+    return args
 
 
 def self_check() -> None:
     """Prove the harness rules reach the agent's system prompt BEFORE any LLM
-    call. Guards against silently running the baseline (empty rules or a
-    registration mismatch). Fails fast with no credit spent otherwise.
-
-    Checks only that the <harness_rules> block is present and non-empty — NOT
-    any specific rule wording, since the fixer rewrites the rules over time.
-    """
+    call. Checks only that the <harness_rules> block is present and non-empty —
+    not specific wording, since the fixer rewrites the rules over time."""
     probe = HarnessLLMAgent(
         tools=[], domain_policy="PROBE_POLICY", llm=MODEL, llm_args=LLM_ARGS
     )
@@ -58,16 +74,18 @@ def self_check() -> None:
     print("[self-check] PASS: harness agent is active.")
 
 
-def run_dev(agent: str, task_ids: list[str], save_to: str):
-    """Run the given task IDs under the frozen controls via run_domain."""
+def run_dev(agent: str, task_ids: list[str], save_to: str, reasoning: str | None = None):
+    """Run the given task IDs. Only the agent's LLM args change between arms."""
+    a_args = agent_llm_args(reasoning)
+    print(f"[run] agent={agent} | agent llm_args={a_args} | user llm_args={LLM_ARGS}")
     cfg = TextRunConfig(
         domain="banking_knowledge",
         agent=agent,
         llm_agent=MODEL,
-        llm_args_agent=LLM_ARGS,
+        llm_args_agent=a_args,
         user="user_simulator",
         llm_user=MODEL,
-        llm_args_user=LLM_ARGS,
+        llm_args_user=dict(LLM_ARGS),  # environment held fixed across arms
         retrieval_config="bm25",
         max_steps=50,
         max_errors=10,
@@ -87,17 +105,21 @@ def main() -> None:
     p.add_argument(
         "--agent",
         default="llm_agent_harness",
-        help="llm_agent_harness (improved) or llm_agent (baseline via the SAME python path, for parity checks)",
+        help="llm_agent_harness (improved) or llm_agent (baseline via the SAME python path)",
+    )
+    p.add_argument(
+        "--reasoning",
+        default="off",
+        choices=["off", "low", "medium", "high"],
+        help="v1 arm: enable agent-side reasoning at this effort (default off = frozen v0 controls)",
     )
     args = p.parse_args()
 
     if args.agent == "llm_agent_harness":
-        register()  # register the variant, then prove the rules landed
+        register()
         self_check()
-    # else: baseline llm_agent is registered by tau2 by default — run it as-is,
-    # through this same run_domain path, to isolate path effects from rule effects.
 
-    run_dev(args.agent, args.task_ids, args.save_to)
+    run_dev(args.agent, args.task_ids, args.save_to, reasoning=args.reasoning)
     print(f"Results: data/simulations/{args.save_to}/results.json")
 
 
