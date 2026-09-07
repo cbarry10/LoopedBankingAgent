@@ -30,6 +30,7 @@ Requires OPENROUTER_API_KEY.
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -37,7 +38,7 @@ from tau2.data_model.simulation import TextRunConfig
 from tau2.run import run_domain
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from agent_harness import HarnessLLMAgent, register, rules_text  # noqa: E402
+from agent_harness import HarnessLLMAgent, register, rules_path, rules_text  # noqa: E402
 
 # Frozen v0 controls — keep in sync with configs/model.yaml
 MODEL = "openrouter/qwen/qwen3.8-27b"
@@ -74,7 +75,7 @@ def self_check() -> None:
     marker = "<harness_rules>" in sp
     nonempty = len(body) >= 40
     print(
-        f"[self-check] rules.md body: {len(body)} chars | "
+        f"[self-check] rules file: {rules_path().name} | body: {len(body)} chars | "
         f"<harness_rules> in prompt: {marker} | non-empty: {nonempty} | "
         f"system prompt: {len(sp)} chars"
     )
@@ -144,12 +145,18 @@ def main() -> None:
         help="agent-side reasoning mode; 'default' reproduces every v0 result (the model reasons by default)",
     )
     p.add_argument(
+        "--rules",
+        default="rules.md",
+        help="harness rules file to append (rules.md = frozen v0; rules_v1.md = demonstration arm)",
+    )
+    p.add_argument(
         "--top-k",
         type=int,
         default=10,
         help="documents returned per KB_search; 10 = v0 default (environment change -> separate arm)",
     )
     args = p.parse_args()
+    os.environ["HARNESS_RULES_FILE"] = args.rules
 
     if args.agent == "llm_agent_harness":
         register()

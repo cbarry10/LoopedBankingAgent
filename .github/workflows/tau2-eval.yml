@@ -27,6 +27,10 @@ on:
         description: "Docs returned per KB_search. 10 = v0 default; lower values are a separate (environment) arm"
         required: false
         default: "10"
+      rules:
+        description: "Harness rules file: rules.md (frozen v0) | rules_v1.md (demonstration arm)"
+        required: false
+        default: "rules.md"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -78,6 +82,7 @@ jobs:
           RUNNER: ${{ inputs.runner }}
           REASONING: ${{ inputs.reasoning }}
           TOP_K: ${{ inputs.top_k }}
+          RULES: ${{ inputs.rules }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

@@ -9,24 +9,33 @@ and cannot be edited, we register onto tau2's global registry singleton at
 runtime (see run_harness.py) rather than patching tau2's source.
 """
 
+import os
 from pathlib import Path
 
 from tau2.agent.llm_agent import AGENT_INSTRUCTION, SYSTEM_PROMPT, LLMAgent
 
-RULES_PATH = Path(__file__).resolve().parent / "rules.md"
 _RULES_MARKER = "## Operating rules"
+DEFAULT_RULES_FILE = "rules.md"  # v0, frozen at O7.3
+
+
+def rules_path() -> Path:
+    """Which rules file to append. HARNESS_RULES_FILE selects an arm's file
+    (e.g. rules_v1.md) so the frozen v0 rules.md is never modified."""
+    name = os.environ.get("HARNESS_RULES_FILE", DEFAULT_RULES_FILE)
+    return Path(__file__).resolve().parent / name
 
 
 def rules_text() -> str:
-    """The rules body from rules.md, excluding the file's own meta header.
+    """The rules body, excluding the file's own meta header.
 
     Returns everything from the first '## Operating rules' heading onward. If the
     file is missing or has no rules section, returns '' (→ baseline behavior),
     which keeps this variant safe to run even against an empty harness.
     """
-    if not RULES_PATH.is_file():
+    p = rules_path()
+    if not p.is_file():
         return ""
-    text = RULES_PATH.read_text()
+    text = p.read_text()
     idx = text.find(_RULES_MARKER)
     return text[idx:].strip() if idx != -1 else text.strip()
 
