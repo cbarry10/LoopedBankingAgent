@@ -164,3 +164,42 @@ its own iterations. The trade was deliberate — a cosmetic inhomogeneity,
 disclosed, in preference to feeding the model a false statement about its own
 history.
 
+## Taxonomy coverage — which hypotheses have been tested
+
+Each iteration = **the same 10 dev tasks x 3 trials = 30 executions**. The task
+set is fixed and never rotated (002, 025, 036, 039, 052, 053, 067, 075, 077,
+090); the 3 trials exist because a single run of one config swung 1/10 to 3/10,
+so one trial cannot separate signal from luck. Per-task reward is the mean over
+trials, in {0, .33, .67, 1.0}; the iteration score is the mean of those.
+
+Each iteration diagnoses **ONE primary failure category** and rewrites the
+rules to address it. The model chooses the category (it is not a forced
+rotation), but prior-attempt memory pushes it toward untested ground.
+
+| category | fixer/iteration | mean | outcome |
+|---|---|---|---|
+| `search_precision` | v1 iter 1 | 0.10 | reverted |
+| `action` | v1 iter 2 | 0.10 | reverted |
+| **`tool_sequencing`** | **v2 iter 1** | **0.333** | **KEPT (+0.133 over control)** |
+| `reasoning` | v2 iter 2 | 0.233 | reverted |
+| `search_timing` | — | — | untried |
+| `search_coverage` | — | — | untried |
+
+4 of 6 categories explored. Note the two untried categories are both
+retrieval-related, while the failure analysis found non-convergence — not
+retrieval — is the dominant mode, so their expected value is real but modest.
+
+**Caveat on "ONE change".** The prompt asks for a single targeted change, but
+the loop accepts whatever the model returns without enforcement (a deliberate
+choice: the log stays honest about what the model actually did). Iteration 2
+made two edits — the escalation gate plus a tweak to the CLI rule. So it is
+more precisely **one diagnosis, sometimes several edits**, which means a revert
+tells us the diagnosis failed but not always which edit caused the regression.
+
+**Why iteration 2 was reverted — a useful negative.** Its `reasoning` fix told
+the agent to stop and ask the customer when scope was ambiguous. That is good
+customer-service behaviour and poor benchmark behaviour: tau2 scores completed
+database actions, so an agent that pauses to confirm scores zero on tasks it
+would otherwise complete. It optimised for a virtue the scorer does not reward,
+and the gate caught it.
+
