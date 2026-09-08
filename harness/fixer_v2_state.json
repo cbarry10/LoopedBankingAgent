@@ -1,7 +1,7 @@
 {
   "fixer_version": "2",
   "rules": "rules_fixer.md",
-  "iteration": 2,
+  "iteration": 3,
   "best_results": "results/fixer2_iter1_dev/results.json",
   "best_mean": 0.3333333333333333,
   "best_pass": 2,
@@ -19,6 +19,13 @@
       "kept": false,
       "candidate_mean": 0.2333333333333333,
       "note": "reverted \u2014 mean 0.233 vs 0.333 (delta -0.100 < margin 0.1)"
+    },
+    {
+      "iteration": 3,
+      "category": "tool_sequencing",
+      "kept": false,
+      "candidate_mean": 0.2,
+      "note": "reverted \u2014 mean 0.200 vs 0.333 (delta -0.133 < margin 0.1)"
     }
   ]
 }

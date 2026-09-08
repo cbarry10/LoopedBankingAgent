@@ -48,3 +48,34 @@ One entry per iteration. See harness/FIXER_SPEC.md (v2 section).
  - Debit card lost/frozen: freeze immediately. If the customer wants the card closed/replaced, a FROZEN card must be unfrozen before close_debit_card; then close and order the replacement. Do not retry close_debit_card while the card is FROZEN.
  - No duplicate calls: do not call the same tool with the same arguments again unless the previous call failed. If a call fails due to a missing or invalid parameter, retry once with corrected parameters. Do not give the same discoverable user tool more than once; if you need its output, call it once with all required parameters.
 ```
+
+## Iteration 3 (fixer v2) — category: tool_sequencing — kept: False
+- baseline: 2/10 (mean 0.33)
+- candidate: 1/10 (mean 0.20)
+- outcome: reverted — mean 0.200 vs 0.333 (delta -0.133 < margin 0.1)
+- change: Add a core-workflow completion checklist that forces the agent to finish the customer's explicit requested workflow, in order, before any optional protective, replacement, or unrelated product action.
+- diagnosis: Across failures the agent repeatedly abandons the explicit workflow and interleaves unrelated protective or product actions, wasting the 50-step budget: task_036 retrieved transactions but then searched fraud and ordered a replacement without customer confirmation; task_077 froze both debit cards but then ordered a credit-card replacement and pulled transactions before completing both debit replacements; task_090 searched for a PIN unlock, then closed/replaced one card instead of unlocking all three; task_053 submitted the CLI before re-checking dispute history after filing the dispute; task_067 looped on product searches and side actions until max_steps. This is tool_sequencing: wrong order and redundant/side-quest calls, not merely search precision or unsupported action.
+
+```diff
+--- rules_fixer.md (before)
++++ rules_fixer.md (after)
+@@ -4,10 +4,17 @@
+ 
+ ## Operating rules
+ 
++- Core-workflow completion checklist (highest priority):
++  1. Identify the explicit request(s). If the customer only asks to see transactions or account details, verify, retrieve, present, and stop; do not search or act on fraud, disputes, replacements, or products unless the customer confirms a specific problem or policy mandates immediate protection.
++  2. Build a minimal ordered plan for each request: identity/verification, exact account/card, required KB facts, required read-only checks, then state-changing actions.
++  3. Execute one workflow at a time. Do not call tools for another product, card type, or optional protection until the current workflow is complete or the customer explicitly asks for it.
++  4. For multiple affected cards/accounts, finish the same workflow for all of them before moving on. For lost/frozen debit cards: freeze all reported cards, then for each reported card unfreeze, close, and order the replacement; do not retrieve transactions or order other card types unless requested.
++  5. For PIN-locked debit cards, the workflow is to unlock or reset the PIN; do not close or replace as fraud unless the customer confirms unauthorized use or policy requires immediate protection.
++  6. For dispute plus credit limit increase: file the dispute, immediately re-check dispute history, then complete all other CLI checks; submit the CLI only if eligible or if the KB says a denial record requires submission, and deny immediately if ineligible.
+ - Sequence: read-only first, state-changing second. For any account action, first verify identity, retrieve the exact account/card, then retrieve every policy check the KB says is required, and only then call the state-changing tool.
+ - Credit limit increases: retrieve CLI history, dispute history, pending replacement orders, and payment history before submitting. If the customer also asks for a dispute, file that dispute first, then re-check dispute history/CLI eligibility. Submit the CLI request only after checks are complete, then immediately approve or deny based on the checks. If policy requires a request record for denial, submit only to create that record and deny immediately; otherwise do not submit an ineligible request. Do not keep searching for exceptions after a policy denial unless the KB explicitly documents an exception.
+ - Disputes and replacements: file the specific transaction disputes first. Order a replacement only after the disputes are filed and after checking pending replacement orders and any replacement-history/limit tool required by policy. Do not order a replacement for a card type the customer did not report lost, stolen, or fraudulent.
+ - Debit card lost/frozen: freeze immediately. If the customer wants the card closed/replaced, a FROZEN card must be unfrozen before close_debit_card; then close and order the replacement. Do not retry close_debit_card while the card is FROZEN.
+ - No duplicate calls: do not call the same tool with the same arguments again unless the previous call failed. If a call fails due to a missing or invalid parameter, retry once with corrected parameters. Do not give the same discoverable user tool more than once; if you need its output, call it once with all required parameters.
+ - Answer the explicit request first. If the customer asks to see transactions or account details, provide that information before taking optional fraud, replacement, or closure actions; do not infer fraud or cancel a card unless the customer confirms unauthorized charges or policy requires immediate protection.
+-- Search discipline: stop KB searching once the exact fact needed for the next action is known. Do not re-search the same product/fact after a tool result or document already answers it. If a query returns an irrelevant document, reformulate the query; do not loop on near-identical searches.
++- Search discipline: stop KB searching once the exact fact needed for the next action is known. Do not re-search the same product/fact after a tool result or document already answers it. If a query returns an irrelevant document, reformulate the query; do not loop on near-identical searches. For product comparisons, use a general comparison document when available and stop once it supplies the attributes needed to choose; do not loop through every product individually.
+```
