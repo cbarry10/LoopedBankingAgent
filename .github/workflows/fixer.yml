@@ -23,7 +23,11 @@ on:
       max_iters:
         description: "Refuse to run past this iteration number"
         required: false
-        default: "4"
+        default: "3"
+      trials:
+        description: "num_trials per task. 3 = 30 executions/iteration. The runs are NOT deterministic (noise floor = +/-1 task at 1 trial)."
+        required: false
+        default: "3"
 
 concurrency:
   group: tau2-eval
@@ -32,7 +36,7 @@ concurrency:
 jobs:
   fixer:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # a 3-trial iteration is ~2.5h (the noise-floor run took 175m)
     permissions:
       contents: write
     steps:
@@ -56,6 +60,7 @@ jobs:
           --init-results ${{ inputs.init_results }}
           --max-iters ${{ inputs.max_iters }}
           --prior-logs ${{ inputs.prior_logs }}
+          --trials ${{ inputs.trials }}
 
       - name: Upload results (artifact backup)
         if: always()

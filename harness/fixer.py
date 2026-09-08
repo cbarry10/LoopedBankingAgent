@@ -46,6 +46,13 @@ BAD_TERMINATIONS = {"infrastructure_error", "too_many_errors"}
 
 # Digest limits — a human design choice that bounds what the fixer can see.
 # Documented in FIXER_SPEC.md; applied uniformly to every task and iteration.
+# Keep-if-better margin. The measured noise floor is sd = 1.00 task at 1 trial
+# (control scored 2/10, 3/10, 1/10). "Any epsilon better" would re-import that
+# noise into the gate, so a candidate must beat the baseline by a full task
+# equivalent (0.10 mean on 10 tasks) before it is kept.
+KEEP_MARGIN = 0.10
+MARGIN_EPS = 1e-9  # 0.3-0.2 == 0.09999999999999998 in float; without this a genuine +1 task is rejected
+
 TOOL_RESPONSE_CHARS = 240   # enough for an error message or a doc header
 TOOL_ARGS_CHARS = 120
 GOAL_CHARS = 300
@@ -70,12 +77,22 @@ def has_signal(sims: list) -> bool:
     )
 
 
+def per_task_means(sims: list) -> dict:
+    """Mean reward per task, averaged over however many trials each task has."""
+    agg: dict = {}
+    for s in sims:
+        agg.setdefault(s["task_id"], []).append(reward_of(s) or 0.0)
+    return {t: sum(v) / len(v) for t, v in agg.items()}
+
+
 def mean_reward(sims: list) -> float:
-    return sum((reward_of(s) or 0.0) for s in sims) / len(sims)
+    m = per_task_means(sims)
+    return sum(m.values()) / len(m)
 
 
 def passes(sims: list) -> int:
-    return sum(1 for s in sims if reward_of(s) == 1.0)
+    """Tasks passing on EVERY trial (a strict, noise-resistant count)."""
+    return sum(1 for v in per_task_means(sims).values() if v == 1.0)
 
 
 # ---------- digest (v2: ordered trace with responses) ----------
@@ -245,7 +262,8 @@ def main() -> int:
     p.add_argument("--state", default="fixer_v2_state.json", help="chaining state in harness/")
     p.add_argument("--init-results", default=None, help="repo-relative results.json to seed the current best (first run only)")
     p.add_argument("--prior-logs", nargs="*", default=[], help="extra logs whose attempts are shown to the fixer")
-    p.add_argument("--max-iters", type=int, default=4)
+    p.add_argument("--max-iters", type=int, default=3)
+    p.add_argument("--trials", type=int, default=3, help="num_trials per task; 1 is unreliable (noise floor = +/-1 task)")
     args = p.parse_args()
 
     if args.rules in FROZEN_RULES:
@@ -262,7 +280,7 @@ def main() -> int:
         return 0
     best = json.loads((REPO_ROOT / st["best_results"]).read_text())["simulations"]
     base_mean, base_pass = st["best_mean"], st["best_pass"]
-    task_ids = sorted(s["task_id"] for s in best)
+    task_ids = sorted({s["task_id"] for s in best})  # dedupe: multi-trial results repeat task_ids
     save_to = f"fixer{FIXER_VERSION}_iter{it}_dev"
     print(f"[fixer v{FIXER_VERSION}] iteration {it} | rules={args.rules} | current best {base_pass}/10 ({base_mean:.2f}) from {st['best_results']}")
 
@@ -325,7 +343,7 @@ def main() -> int:
         raise SystemExit(f"harness loaded {rules_path().name}, expected {args.rules} — aborting before eval")
 
     print(f"[fixer] running {len(task_ids)} dev tasks with candidate rules -> {save_to}")
-    run_dev("llm_agent_harness", task_ids, save_to)
+    run_dev("llm_agent_harness", task_ids, save_to, trials=args.trials)
     csims = json.loads((TAU2_SIM_DIR / save_to / "results.json").read_text())["simulations"]
 
     if not has_signal(csims):
@@ -335,11 +353,12 @@ def main() -> int:
     cand_mean, cand_pass = mean_reward(csims), passes(csims)
     RESULTS_DIR.mkdir(exist_ok=True)
     shutil.copytree(TAU2_SIM_DIR / save_to, RESULTS_DIR / save_to, dirs_exist_ok=True)
-    kept = cand_mean > base_mean
+    kept = (cand_mean - base_mean) >= KEEP_MARGIN - MARGIN_EPS
     if not kept:
         rules_file.write_text(full_before)
-    note = (f"KEPT — {cand_pass}/10 ({cand_mean:.2f}) > {base_pass}/10 ({base_mean:.2f})" if kept
-            else f"reverted — {cand_pass}/10 ({cand_mean:.2f}) <= {base_pass}/10 ({base_mean:.2f})")
+    delta = cand_mean - base_mean
+    note = (f"KEPT — mean {cand_mean:.3f} vs {base_mean:.3f} (delta {delta:+.3f} >= margin {KEEP_MARGIN})" if kept
+            else f"reverted — mean {cand_mean:.3f} vs {base_mean:.3f} (delta {delta:+.3f} < margin {KEEP_MARGIN})")
     return finish(kept, cand_mean, cand_pass, note, save_to)
 
 
