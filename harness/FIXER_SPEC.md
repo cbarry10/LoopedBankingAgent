@@ -142,3 +142,25 @@ Consequences, which supersede the earlier plan:
   which yields three independent 10-task scores plus per-task flip rates.
 - A 3-trial iteration takes ~2.5h, exceeding `fixer.yml`'s 180-minute timeout;
   raise it to 300 before running one.
+
+## Disclosure: a mid-arm change to the fixer prompt (09-08)
+
+After iteration 1 was KEPT, the prior-attempts block was found to be hardcoded
+as "these did NOT strictly improve the score — do NOT repeat them". Written
+when every attempt had been reverted, it would have told iteration 2 that its
+own successful `tool_sequencing` change had failed, and invited it to undo
+rules already in effect. Attempts are now split by outcome: kept ones framed as
+WHAT ALREADY WORKED (build on, do not undo), reverted ones as WHAT DID NOT WORK.
+
+**Effect on results: none for iteration 1.** Its artifacts are immutable
+committed JSON, and the bug was unreachable there — `fixer_v2_log.md` did not
+yet exist, so the only priors were v1's two attempts, both `kept=False`. Every
+prior was genuinely a failure, making the old framing accurate; the new code
+routes the same two entries to the same meaning.
+
+**Disclosed caveat:** the prompt's header wording nonetheless differs between
+iteration 1 and iterations 2-3, so this arm is not perfectly homogeneous across
+its own iterations. The trade was deliberate — a cosmetic inhomogeneity,
+disclosed, in preference to feeding the model a false statement about its own
+history.
+
