@@ -116,7 +116,23 @@ def _query_of(args: str) -> str:
         return args
 
 
-def digest(sim: dict) -> str:
+def representative_sims(sims: list) -> list:
+    """One simulation per task (lowest trial index).
+
+    With num_trials=3 the results hold 3 sims per task; showing all three would
+    triple the prompt with near-duplicate traces. We show one trace per task and
+    annotate it with the per-task mean across trials, so the fixer still sees
+    which tasks are flaky without paying 3x the context.
+    """
+    best: dict = {}
+    for s in sims:
+        tid = s["task_id"]
+        if tid not in best or (s.get("trial") or 0) < (best[tid].get("trial") or 0):
+            best[tid] = s
+    return [best[t] for t in sorted(best)]
+
+
+def digest(sim: dict, task_mean: float | None = None, n_trials: int = 1) -> str:
     """Goal + the ordered trace of every tool call -> response, repeats flagged."""
     msgs = sim.get("messages") or []
     goal = ""
@@ -131,8 +147,10 @@ def digest(sim: dict) -> str:
         if m.get("role") == "tool" and pending:
             pending.popleft()["resp"] = str(m.get("content") or "")
 
+    across = (f" | across {n_trials} trials this task scored {task_mean:.2f} mean"
+              if task_mean is not None and n_trials > 1 else "")
     out = [
-        f"TASK {sim.get('task_id')} | reward={reward_of(sim)} | termination={sim.get('termination_reason')}",
+        f"TASK {sim.get('task_id')} | reward={reward_of(sim)} | termination={sim.get('termination_reason')}{across}",
         f"  goal: {goal[:GOAL_CHARS]}",
         "  trace (in order):",
     ]
@@ -210,7 +228,7 @@ def call_fixer(current_section: str, digests: str, base_mean: float, base_pass: 
     for _ in (1, 2):
         resp = litellm.completion(
             model=MODEL, messages=messages, temperature=LLM_ARGS["temperature"],
-            seed=LLM_ARGS["seed"], max_tokens=4000,
+            seed=LLM_ARGS["seed"], max_tokens=16000,  # this model reasons by default; reasoning tokens count against this
         )
         text = resp.choices[0].message.content or ""
         if _extract_json(text) is not None:
@@ -296,7 +314,12 @@ def main() -> int:
     meta = full_before[:idx] if idx != -1 else full_before
     current_section = full_before[idx + len(RULES_MARKER):] if idx != -1 else ""
 
-    digests = "\n\n".join(digest(s) for s in best)
+    tmeans = per_task_means(best)
+    n_trials = max(1, len(best) // max(1, len(task_ids)))
+    digests = "\n\n".join(
+        digest(s, tmeans.get(s["task_id"]), n_trials) for s in representative_sims(best)
+    )
+    print(f"[fixer] digest: {len(representative_sims(best))} task traces, {len(digests):,} chars (~{len(digests)//4:,} tokens)")
     prior = attempts_from_log(log_path) + [
         a for extra in args.prior_logs for a in attempts_from_log(HARNESS_DIR / extra)
     ]
