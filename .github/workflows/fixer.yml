@@ -36,7 +36,10 @@ concurrency:
 jobs:
   fixer:
     runs-on: ubuntu-latest
-    timeout-minutes: 300  # a 3-trial iteration is ~2.5h (the noise-floor run took 175m)
+    # Iteration 1 took 127m; iteration 2 exceeded 250m because the kept rules
+    # front-load read-only checks before every state-changing action, so each
+    # task legitimately does more work. 350 is just under GitHub's 360m ceiling.
+    timeout-minutes: 350
     permissions:
       contents: write
     steps:
