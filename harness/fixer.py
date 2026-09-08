@@ -211,11 +211,22 @@ Return ONLY a JSON object, no prose, no code fences:
 
 
 def call_fixer(current_section: str, digests: str, base_mean: float, base_pass: int, prior: list[str]) -> str:
-    prior_block = (
-        "\nPREVIOUS ATTEMPTS (already tried; these did NOT strictly improve the score — "
-        "do NOT repeat them; choose a different primary failure and a different fix):\n"
-        + "\n".join(prior) + "\n"
-    ) if prior else ""
+    kept_prior = [a for a in prior if "kept=True" in a]
+    failed_prior = [a for a in prior if "kept=True" not in a]
+    blocks = []
+    if kept_prior:
+        blocks.append(
+            "\nWHAT ALREADY WORKED (these changes IMPROVED the score and are already "
+            "part of the current rules above — keep them, build on them, do NOT undo "
+            "or contradict them):\n" + "\n".join(kept_prior)
+        )
+    if failed_prior:
+        blocks.append(
+            "\nWHAT DID NOT WORK (already tried; these did NOT improve the score — do "
+            "NOT repeat them; pick a different primary failure and a different fix):\n"
+            + "\n".join(failed_prior)
+        )
+    prior_block = ("\n".join(blocks) + "\n") if blocks else ""
     section = current_section.strip() or "(EMPTY — the agent currently runs with no rules at all)"
     user = (
         f"CURRENT RULES SECTION:\n{section}\n\n"
