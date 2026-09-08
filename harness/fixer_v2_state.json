@@ -1,0 +1,17 @@
+{
+  "fixer_version": "2",
+  "rules": "rules_fixer.md",
+  "iteration": 1,
+  "best_results": "results/fixer2_iter1_dev/results.json",
+  "best_mean": 0.3333333333333333,
+  "best_pass": 2,
+  "history": [
+    {
+      "iteration": 1,
+      "category": "tool_sequencing",
+      "kept": true,
+      "candidate_mean": 0.3333333333333333,
+      "note": "KEPT \u2014 mean 0.333 vs 0.200 (delta +0.133 >= margin 0.1)"
+    }
+  ]
+}
