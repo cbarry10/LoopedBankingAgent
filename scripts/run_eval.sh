@@ -26,12 +26,14 @@ TOP_K="${TOP_K:-10}"
 RULES="${RULES:-rules.md}"
 # num_trials per task. >1 averages run-to-run noise (runs are NOT deterministic).
 TRIALS="${TRIALS:-1}"
+# Agent-turn budget injected each turn (agent scaffolding, NOT a harness edit). 0 = off.
+STEP_BUDGET="${STEP_BUDGET:-0}"
 
 cd tau2-bench
 
 # Any non-default reasoning forces the in-process path (the CLI cannot pass
 # agent-only reasoning args).
-if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ] && [ "$REASONING" = "default" ] && [ "$TOP_K" = "10" ] && [ "$RULES" = "rules.md" ] && [ "$TRIALS" = "1" ]; then
+if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ] && [ "$REASONING" = "default" ] && [ "$TOP_K" = "10" ] && [ "$RULES" = "rules.md" ] && [ "$TRIALS" = "1" ] && [ "$STEP_BUDGET" = "0" ]; then
   # Baseline path — unchanged; runs stock llm_agent via the tau2 CLI.
   uv run tau2 run \
     --domain banking_knowledge \
@@ -52,7 +54,7 @@ else
   # In-process path via run_domain. Used for the harness variant (which must be
   # registered at runtime) and for baseline parity checks (AGENT=llm_agent
   # RUNNER=python) that isolate path effects from rule effects. Same controls.
-  uv run python ../harness/run_harness.py --agent "$AGENT" --reasoning "$REASONING" --top-k "$TOP_K" --rules "$RULES" --trials "$TRIALS" --save-to "$SAVE_TO" "$@"
+  uv run python ../harness/run_harness.py --agent "$AGENT" --reasoning "$REASONING" --top-k "$TOP_K" --rules "$RULES" --trials "$TRIALS" --step-budget "$STEP_BUDGET" --save-to "$SAVE_TO" "$@"
 fi
 
 echo "Results: tau2-bench/data/simulations/$SAVE_TO/results.json"

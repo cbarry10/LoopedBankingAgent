@@ -15,6 +15,12 @@ from pathlib import Path
 from tau2.agent.llm_agent import AGENT_INSTRUCTION, SYSTEM_PROMPT, LLMAgent
 
 _RULES_MARKER = "## Operating rules"
+
+# Agent-visible proxy for tau2's max_steps. step_count lives on the orchestrator
+# and increments on EVERY message hop, so the agent cannot read it. Measured
+# across 79 executions that hit max_steps=50, the agent's own assistant-turn
+# count at termination was median 26, max 26, stdev 1.3 -> a stable proxy.
+DEFAULT_TURN_BUDGET = 26
 DEFAULT_RULES_FILE = "rules.md"  # v0, frozen at O7.3
 
 
@@ -40,8 +46,39 @@ def rules_text() -> str:
     return text[idx:].strip() if idx != -1 else text.strip()
 
 
+def turn_budget() -> int:
+    """HARNESS_STEP_BUDGET: agent turns to advertise. 0/unset disables injection."""
+    try:
+        return int(os.environ.get("HARNESS_STEP_BUDGET", "0"))
+    except ValueError:
+        return 0
+
+
+def budget_block(used: int, budget: int) -> str:
+    remaining = max(0, budget - used)
+    return (
+        f"\n<step_budget>\nYou have taken {used} of about {budget} turns; roughly "
+        f"{remaining} remain before this conversation ends automatically. When few "
+        f"turns remain, stop gathering information and complete the customer's "
+        f"request with what you already have.\n</step_budget>"
+    )
+
+
 class HarnessLLMAgent(LLMAgent):
-    """LLMAgent whose system prompt carries the harness rules."""
+    """LLMAgent whose system prompt carries the harness rules.
+
+    With HARNESS_STEP_BUDGET set, the system message is refreshed each turn with
+    a live turn count. This is AGENT SCAFFOLDING, not a harness edit: the rules
+    file is untouched and the static system_prompt below is unchanged, so with
+    the toggle off the agent is byte-identical to the harness-only config.
+    """
+
+    def generate_next_message(self, message, state):
+        budget = turn_budget()
+        if budget > 0 and state.system_messages:
+            used = sum(1 for m in state.messages if getattr(m, "role", None) == "assistant")
+            state.system_messages[0].content = self.system_prompt + budget_block(used, budget)
+        return super().generate_next_message(message, state)
 
     @property
     def system_prompt(self) -> str:

@@ -35,6 +35,10 @@ on:
         description: "num_trials per task. >1 averages run-to-run noise (runs are NOT deterministic). 3 = 30 executions on 10 tasks."
         required: false
         default: "1"
+      step_budget:
+        description: "Agent-turn budget injected each turn (26 = measured proxy for max_steps=50). 0 = off. AGENT SCAFFOLDING, not a harness edit."
+        required: false
+        default: "0"
 
 # Serialize dispatches so their commit-back pushes never race each other.
 concurrency:
@@ -88,6 +92,7 @@ jobs:
           TOP_K: ${{ inputs.top_k }}
           RULES: ${{ inputs.rules }}
           TRIALS: ${{ inputs.trials }}
+          STEP_BUDGET: ${{ inputs.step_budget }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

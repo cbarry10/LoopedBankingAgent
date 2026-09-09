@@ -38,7 +38,7 @@ from tau2.data_model.simulation import TextRunConfig
 from tau2.run import run_domain
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from agent_harness import HarnessLLMAgent, register, rules_path, rules_text  # noqa: E402
+from agent_harness import HarnessLLMAgent, budget_block, register, rules_path, rules_text, turn_budget  # noqa: E402
 
 # Frozen v0 controls — keep in sync with configs/model.yaml
 MODEL = "openrouter/qwen/qwen3.8-27b"
@@ -74,11 +74,19 @@ def self_check() -> None:
     body = rules_text()
     marker = "<harness_rules>" in sp
     nonempty = len(body) >= 40
+    tb = turn_budget()
     print(
         f"[self-check] rules file: {rules_path().name} | body: {len(body)} chars | "
         f"<harness_rules> in prompt: {marker} | non-empty: {nonempty} | "
-        f"system prompt: {len(sp)} chars"
+        f"system prompt: {len(sp)} chars | step-budget: {tb or 'OFF'}"
     )
+    if tb:
+        # prove the injection renders before spending anything
+        sample = budget_block(0, tb)
+        if "<step_budget>" not in sample or f"about {tb} turns" not in sample:
+            print("[self-check] FAIL: step-budget block did not render.", file=sys.stderr)
+            sys.exit(1)
+        print(f"[self-check] step-budget ACTIVE — injecting {tb}-turn budget each turn.")
     if not (marker and nonempty):
         print(
             "[self-check] FAIL: harness rules not present in the agent system "
@@ -152,6 +160,12 @@ def main() -> None:
         help="harness rules file to append (rules.md = frozen v0; rules_v1.md = demonstration arm)",
     )
     p.add_argument(
+        "--step-budget",
+        type=int,
+        default=0,
+        help="agent-turn budget to advertise each turn (26 = measured proxy for max_steps=50); 0 = off",
+    )
+    p.add_argument(
         "--trials",
         type=int,
         default=1,
@@ -165,6 +179,7 @@ def main() -> None:
     )
     args = p.parse_args()
     os.environ["HARNESS_RULES_FILE"] = args.rules
+    os.environ["HARNESS_STEP_BUDGET"] = str(args.step_budget)
 
     if args.agent == "llm_agent_harness":
         register()
