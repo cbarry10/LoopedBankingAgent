@@ -182,10 +182,11 @@ rotation), but prior-attempt memory pushes it toward untested ground.
 | `action` | v1 iter 2 | 0.10 | reverted |
 | **`tool_sequencing`** | **v2 iter 1** | **0.333** | **KEPT (+0.133 over control)** |
 | `reasoning` | v2 iter 2 | 0.233 | reverted |
+| `tool_sequencing` | v2 iter 3 | 0.200 | reverted — rigid checklist over-constrained the iter-1 win |
 | `search_timing` | — | — | untried |
 | `search_coverage` | — | — | untried |
 
-4 of 6 categories explored. Note the two untried categories are both
+4 of 6 categories explored across five iterations. Note the two untried categories are both
 retrieval-related, while the failure analysis found non-convergence — not
 retrieval — is the dominant mode, so their expected value is real but modest.
 
@@ -203,3 +204,24 @@ database actions, so an agent that pauses to confirm scores zero on tasks it
 would otherwise complete. It optimised for a virtue the scorer does not reward,
 and the gate caught it.
 
+## Step-budget arm (09-09) — agent scaffolding, not a fixer iteration
+
+After iteration 3 the loop was stopped with `rules_fixer.md` at its iteration-1
+state (0.333). The next change was **not** a rules edit: `agent_harness.py`
+gained an optional per-turn `<step_budget>` block advertising the agent's own
+assistant-turn count against a budget of 26 — the measured proxy for
+`max_steps=50` (median 26, max 26, sd 1.3 across 79 executions that hit the
+cap). The rules file is byte-identical; with the toggle off the agent is
+byte-identical to the harness-only config.
+
+| config | mean | solved | `max_steps` | wrong-but-finished | results |
+|---|---|---|---|---|---|
+| control | 0.200 | 6/30 | 10/30 | 14/30 | `noise_floor_baseline` |
+| `rules_fixer.md` | 0.333 | 10/30 | 9/30 | 11/30 | `fixer2_iter1_dev` |
+| `rules_fixer.md` + budget 26 | **0.400** | 12/30 | 7/30 | 11/30 | `stepbudget_dev` |
+
+The budget alone is +0.067 over harness-only — below the ≥0.10 gate — so the
+gate-clearing claim is the full stack against control (+0.200). Rewriting the
+system message each turn defeats prompt caching (cache discount 54% → 3%;
+recorded cost $5.59 → $9.57; runtime 180 → 246 min). Both components are
+classified in the README; the holdout run is the next step.

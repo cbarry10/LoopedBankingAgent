@@ -1,7 +1,15 @@
 # Improvement Menu (Pareto-ranked)
 
 Options for lifting task success beyond the v0 result (held-out lift +0.00).
-Ranked least-effort/most-effective first. **Selected so far: #1 (v1 arm).**
+Ranked least-effort/most-effective first.
+
+**Status (2026-09-09).** The fixer v2 arm produced a model-authored
+`tool_sequencing` harness (0.333, +0.133 over control); **step-budget
+awareness** — an agent-visible proxy for `max_steps`, chosen as option 1 of
+the post-fixer scaffolding menu (budget / loop-breaker / router) — lifted it to
+**0.400 (+0.200 vs control)**. Both are dev-set results; the holdout run is
+next. Still untried from this list: `top_k` (#1), loop-breaker (#5), router.
+See the README for the full scorecard.
 
 ## Calibrate expectations first
 Sierra's own τ²/τ³ results on this domain: the best frontier model (GPT-5.2,
