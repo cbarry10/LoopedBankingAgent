@@ -12,9 +12,10 @@ next. Still untried from this list: `top_k` (#1), loop-breaker (#5), router.
 See the README for the full scorecard.
 
 ## Calibrate expectations first
-Sierra's own τ²/τ³ results on this domain: the best frontier model (GPT-5.2,
-high reasoning) solves ~25% of banking_knowledge tasks, and **even handed the
-exact required documents, only ~40%**. The bottleneck is understanding and
+Sierra's τ³-Banking leaderboard (checked 2026-09-09): the best model, Qwen 3.8
+Max, reaches 55.2% Pass^1 and GPT-5.2 high reaches 32.2% — both with *agentic*
+retrieval. The same GPT-5.2 on static embedding retrieval scores **12.6%**,
+which is the regime our BM25 `top_k`=10 setup sits in. The bottleneck is understanding and
 acting, not finding. A 27B model at 20% is near its realistic ceiling — the
 honest 80/20 target is **2/10 → 3–4/10**, not 8/10.
 

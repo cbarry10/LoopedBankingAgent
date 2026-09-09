@@ -35,14 +35,6 @@ on:
         description: "num_trials per task. >1 averages run-to-run noise (runs are NOT deterministic). 3 = 30 executions on 10 tasks."
         required: false
         default: "1"
-      agent_model:
-        description: "Agent-side model override, e.g. openrouter/openai/gpt-5.6-sol. Empty = frozen qwen3.8-27b. USER SIM always stays qwen. Bare-agent CLI path only."
-        required: false
-        default: ""
-      agent_llm_args:
-        description: "Agent-side llm args JSON override. Empty = frozen temperature 0.0 / seed 42."
-        required: false
-        default: ""
       step_budget:
         description: "Agent-turn budget injected each turn (26 = measured proxy for max_steps=50). 0 = off. AGENT SCAFFOLDING, not a harness edit."
         required: false
@@ -101,8 +93,6 @@ jobs:
           RULES: ${{ inputs.rules }}
           TRIALS: ${{ inputs.trials }}
           STEP_BUDGET: ${{ inputs.step_budget }}
-          AGENT_MODEL: ${{ inputs.agent_model }}
-          AGENT_LLM_ARGS: ${{ inputs.agent_llm_args }}
         run: ./scripts/run_eval.sh ${{ inputs.task_ids }}
 
       - name: Upload results (artifact backup)

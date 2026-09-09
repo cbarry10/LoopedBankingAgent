@@ -10,6 +10,8 @@ Qwen3.8-27B. The model plays three roles: the **agent**, the simulated
 > **Dev result:** model-authored harness + step-budget awareness = **0.400 vs 0.200 control (+0.200)**
 > at **$0.80 per solved task**. The pre-registered v0 held-out result was **+0.00**.
 > **Next:** confirm on the untouched holdout — the run that turns this from a tuning-set number into a claim.
+>
+> *Every figure here is a delta against a control run under identical conditions. No absolute score is claimed.*
 
 The arc, in one paragraph: a pre-registered run of this idea returned zero
 lift. An audit found the fixer had been diagnosing half-blind against a
@@ -62,50 +64,60 @@ the cacheable prefix.
 
 ## 3 · Cost per solved task
 
-Measured: $9.57 for 12 solved tasks = **$0.80 per solved task**. The other
-rows price *our* token volume (19.7M prompt + 0.54M completion) at each
-model's list rate. `qwen3.8-27b` at $0.42 / $3.00 per M tokens sits at the
-59th percentile of 364 tool-capable models on OpenRouter — open weights ≠
-cheap inference.
+Measured: **$9.57 for 12 solved tasks = $0.80 per solved task.** At list price
+it is $9.91 — the step budget destroyed prompt caching, so recorded and list
+land within 3% of each other on this arm.
 
-| Model | Same token volume | Per solved task |
+That figure is only meaningful against itself and against the control. On the
+input side, `qwen3.8-27b` costs $0.42 / $3.00 per M tokens and sits at the
+**59th percentile of 364 tool-capable models** on OpenRouter. Several closed
+models — GPT-5.6 Luna at $0.20 / $1.20 among them — and several open ones are
+**cheaper than the open-weight model used here**. Open weights are not the
+same as cheap inference, and this project is a worked example of the
+difference.
+
+I deliberately do not price other models against our token volume. That
+assumes a different model burns the same tokens, which is false — a stronger
+agent wastes fewer steps — so any multiple derived that way would be fiction.
+
+## 4 · Why this is not a leaderboard comparison
+
+**I do not report an absolute score. Every number in this repo is a delta
+against a control run under identical conditions.** That is the only claim
+this setup supports, and it is the only one made.
+
+For calibration on how hard the domain is, Sierra publishes the
+[τ³-Banking leaderboard](https://taubench.com/leaderboard?benchmark=knowledge)
+(released as τ-knowledge). Checked 2026-09-09:
+
+| Model | Retrieval | Pass^1 |
 |---|---|---|
-| gpt-5-nano | $1.20 | $0.10 |
-| gemini-2.5-flash-lite | $2.19 | $0.18 |
-| **qwen3.8-27b + our scaffolding (measured)** | **$9.57** | **$0.80** |
-| claude-opus-4.1 | $336.51 | $28.04 |
-| gpt-5.5-pro | $689.25 | $57.44 |
+| Qwen 3.8 Max | `alltools` | 55.2% |
+| Claude Opus 5 | `alltools` | 48.7% |
+| GPT-5.5 xhigh | `alltools` | 44.6% |
+| GPT-5.2 high | `alltools` | 32.2% |
+| **GPT-5.2 high** | **static embeddings** | **12.6%** |
 
-⚠ **An upper bound, not a measurement.** It assumes a frontier model burns
-the same tokens. A stronger model wastes fewer steps, so the real multiple is
-smaller than the ~72× implied.
+The last two rows are the **same model**. Retrieval strategy moves it 2.5× —
+a larger swing than most of the gap between models on the board.
 
-## 4 · The leaderboard comparison — objection stated first
+Four reasons our 0.400 cannot be placed on that table:
 
-Sierra's published τ-knowledge numbers ([launch post](https://sierra.ai/blog/bench-advancing-agent-benchmarking-to-knowledge-and-voice),
-March 2026; leaderboard checked 2026-09-09): at launch the best frontier
-model — GPT-5.2, high reasoning — passed **25.5% Pass^1**. The current
-leader, GPT-5.5 xhigh, reaches **37.4% Pass^1** (Pass^4 rose 9.3% → 20.6%).
+1. **Tuning set.** Ours is 10 dev tasks the harness was optimised against over
+   multiple iterations; theirs is the full domain. Training accuracy versus
+   test accuracy — the first objection any reviewer raises.
+2. **Retrieval regime.** We run BM25 `top_k`=10 — static retrieval, the weaker
+   regime by the 2.5× above. Nearly every leaderboard row uses agentic search.
+3. **Different customer.** Every leaderboard row uses **gpt-5.2 as the user
+   simulator**; ours is the same qwen3.8-27b that plays the agent. A different
+   simulated customer means a different task difficulty.
+4. **Different benchmark.** Ours is tau2-bench v1.0.1 @ `fc0055dc`; the board
+   is τ³-Banking after [task fixes](http://taubench.com/blog/tau3-task-fixes.html)
+   and a full re-run.
 
-**Our 0.400 must not yet be presented as parity with 37.4%.** In order of severity:
-
-1. **Tuning set.** Our 0.400 is on the 10 dev tasks the harness was optimised
-   against over multiple iterations. Theirs is a leaderboard over the full
-   domain. Training accuracy versus test accuracy — the first objection any
-   reviewer raises.
-2. **Different task set and version.** 10 stratified tasks at tau2 v1.0.1
-   (`fc0055dc`) versus the current τ³ leaderboard.
-3. **Different retrieval.** BM25 `top_k`=10 here; leaderboard entries may use
-   embeddings or agentic search.
-4. **Metric mapping — fine.** Mean reward over 3 trials ≈ expected Pass^1. The
-   metric is comparable; the task set is not.
-
-**What makes it valid:** run the frozen config on the pre-registered fresh
-holdout ([`configs/tasks_holdout_v2.yaml`](configs/tasks_holdout_v2.yaml) —
-ten tasks, never touched, ~$6). If 0.400 holds on tasks nobody tuned against,
-the claim becomes: *a 27B open-weight model with self-authored scaffolding
-reaches the frontier band on held-out tasks at roughly 1/30th the cost per
-solved task.*
+None of those four affect a within-setup delta, which is why the delta is what
+gets reported. The board is cited to establish one thing: **this domain is
+hard, and low absolute scores are normal here.**
 
 ---
 
@@ -251,7 +263,7 @@ signal commits its results back to `results/` (runs with none are rejected by
 - **Cost comparison is an upper bound** — it prices our token volume at other
   models' rates rather than measuring them.
 - **One model, one domain, five fixer iterations.** Frontier models score
-  25–37% here, so absolute scores are low by nature.
+  32–55% here even with agentic retrieval, so absolute scores are low by nature.
 - One reported pathology ("phantom duplicate accounts") was later found to be
   **analyst error** and is corrected in
   [`harness/FAILURE_ANALYSIS.md`](harness/FAILURE_ANALYSIS.md).

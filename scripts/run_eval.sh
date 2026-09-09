@@ -13,12 +13,6 @@ cd "$(dirname "$0")/.."
 # Frozen controls — keep in sync with configs/model.yaml
 MODEL="openrouter/qwen/qwen3.8-27b"
 LLM_ARGS='{"temperature": 0.0, "seed": 42}'
-# Agent-side model override for cross-model arms. Unset => frozen Qwen, so every
-# prior run reproduces byte-identically. The USER SIMULATOR always stays on
-# MODEL: holding the simulated customer fixed is what keeps task difficulty
-# constant across arms, so only the agent varies.
-AGENT_MODEL="${AGENT_MODEL:-$MODEL}"
-AGENT_LLM_ARGS="${AGENT_LLM_ARGS:-$LLM_ARGS}"
 SAVE_TO="${SAVE_TO:-run_$(date -u +%Y%m%dT%H%M%SZ)}"
 AGENT="${AGENT:-llm_agent}"  # baseline; set to llm_agent_harness for the improved variant
 RUNNER="${RUNNER:-cli}"      # cli = tau2 CLI (baseline); python = in-process run_domain
@@ -35,16 +29,6 @@ TRIALS="${TRIALS:-1}"
 # Agent-turn budget injected each turn (agent scaffolding, NOT a harness edit). 0 = off.
 STEP_BUDGET="${STEP_BUDGET:-0}"
 
-# run_harness.py takes no agent-model override, so a cross-model arm must never
-# fall through to the in-process path -- that would silently score the frozen
-# Qwen while reporting the override. Fail loudly instead.
-if [ "$AGENT_MODEL" != "$MODEL" ] && { [ "$AGENT" != "llm_agent" ] || [ "$RUNNER" != "cli" ] || [ "$TRIALS" != "1" ] || [ "$REASONING" != "default" ] || [ "$TOP_K" != "10" ] || [ "$RULES" != "rules.md" ] || [ "$STEP_BUDGET" != "0" ]; }; then
-  echo "ERROR: AGENT_MODEL override is only wired for the bare-agent CLI path" >&2
-  echo "       (AGENT=llm_agent RUNNER=cli TRIALS=1, all other knobs default)." >&2
-  echo "       Got AGENT=$AGENT RUNNER=$RUNNER TRIALS=$TRIALS REASONING=$REASONING TOP_K=$TOP_K RULES=$RULES STEP_BUDGET=$STEP_BUDGET" >&2
-  exit 1
-fi
-
 cd tau2-bench
 
 # Any non-default reasoning forces the in-process path (the CLI cannot pass
@@ -54,8 +38,8 @@ if [ "$AGENT" = "llm_agent" ] && [ "$RUNNER" = "cli" ] && [ "$REASONING" = "defa
   uv run tau2 run \
     --domain banking_knowledge \
     --agent llm_agent \
-    --agent-llm "$AGENT_MODEL" \
-    --agent-llm-args "$AGENT_LLM_ARGS" \
+    --agent-llm "$MODEL" \
+    --agent-llm-args "$LLM_ARGS" \
     --user user_simulator \
     --user-llm "$MODEL" \
     --user-llm-args "$LLM_ARGS" \
