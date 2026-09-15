@@ -7,8 +7,10 @@ Ranked least-effort/most-effective first.
 `tool_sequencing` harness (0.333, +0.133 over control); **step-budget
 awareness** — an agent-visible proxy for `max_steps`, chosen as option 1 of
 the post-fixer scaffolding menu (budget / loop-breaker / router) — lifted it to
-**0.400 (+0.200 vs control)**. Both are dev-set results; the holdout run is
-next. Still untried from this list: `top_k` (#1), loop-breaker (#5), router.
+**0.400 (+0.200 vs control)** on dev. On the pre-registered held-out set at
+1 trial the same stack scored 0.200 vs a 0.100 control: a +0.100 gap, which is
+the size of the noise floor, so it neither confirms nor refutes the dev result.
+Three trials on the holdout would settle it and have not been run. Still untried from this list: `top_k` (#1), loop-breaker (#5), router.
 See the README for the full scorecard.
 
 ## Calibrate expectations first

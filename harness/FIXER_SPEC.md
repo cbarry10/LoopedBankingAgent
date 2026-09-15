@@ -224,4 +224,13 @@ The budget alone is +0.067 over harness-only — below the ≥0.10 gate — so t
 gate-clearing claim is the full stack against control (+0.200). Rewriting the
 system message each turn defeats prompt caching (cache discount 54% → 3%;
 recorded cost $5.59 → $9.57; runtime 180 → 246 min). Both components are
-classified in the README; the holdout run is the next step.
+classified in the README.
+
+**Held-out run (09-10).** The frozen stack and a matched no-harness control were
+run on `tasks_holdout_v2.yaml` at 1 trial: 0.200 vs 0.100, a +0.100 gap against
+a measured noise floor of +/-1 task, so it does not establish a lift. Each arm
+against its own dev behaviour is the more informative read: the control's 1/10
+sits inside its dev range of 1-3, while the stack's 2/10 is below its dev range
+of 3-5. The cache finding reproduced (control 50% discount, stack 4%). Three
+trials would resolve it; per the pre-registration nothing was changed in
+response to these numbers.
