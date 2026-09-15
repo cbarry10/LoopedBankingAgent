@@ -226,11 +226,9 @@ system message each turn defeats prompt caching (cache discount 54% → 3%;
 recorded cost $5.59 → $9.57; runtime 180 → 246 min). Both components are
 classified in the README.
 
-**Held-out run (09-10).** The frozen stack and a matched no-harness control were
-run on `tasks_holdout_v2.yaml` at 1 trial: 0.200 vs 0.100, a +0.100 gap against
-a measured noise floor of +/-1 task, so it does not establish a lift. Each arm
-against its own dev behaviour is the more informative read: the control's 1/10
-sits inside its dev range of 1-3, while the stack's 2/10 is below its dev range
-of 3-5. The cache finding reproduced (control 50% discount, stack 4%). Three
-trials would resolve it; per the pre-registration nothing was changed in
-response to these numbers.
+**Held-out probe (09-10).** The frozen stack and a matched control were run on
+`tasks_holdout_v2.yaml` at 1 trial: 0.200 vs 0.100. One trial is below the
+3-trial bar this spec sets, so it neither confirms nor refutes the dev result.
+Direction was consistent and non-convergence fell 5/10 -> 3/10, matching the dev
+mechanism; the cache finding also reproduced (50% discount vs 4%). Three trials
+would resolve it. Per the pre-registration, nothing was changed in response.

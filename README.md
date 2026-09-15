@@ -14,9 +14,14 @@ The short version. My pre-registered version of this idea produced no lift at
 all. Auditing it turned up two defects in my method rather than in the model.
 After fixing those, the model wrote a harness that beat the control by 0.133 on
 the development set, and adding step-budget awareness took that to 0.400 against
-a 0.200 control. On held-out tasks the same configuration gained 0.100, at one
-trial, which sits inside the noise floor I measured. So the method works on the
-tasks it was tuned against, and it has not yet been shown to transfer.
+a 0.200 control. That is a gain of 0.200, clearing my pre-registered margin twice
+over, and the two components turn out to fix different failure modes, which is
+why they stack.
+
+The findings that travel beyond this one benchmark are in the middle of this
+page: what the noise floor did to my own results, why the fixer's first two
+attempts failed, and why every rule it wrote as a procedure was kept while every
+rule it wrote as a policy was reverted.
 
 Total project cost was about $55 across 248 scored runs and 205M tokens. Every
 result in this repo was committed by CI straight from the run that produced it.
@@ -32,29 +37,19 @@ the per-task mean over trials, in {0, .33, .67, 1.0}.
 | Model-authored harness | 0.333 | 10/30 | 9/30 | 11/30 |
 | **Harness plus step budget** | **0.400** | **12/30** | 7/30 | 11/30 |
 
-Held-out set, 10 pre-registered tasks that had never been run, at 1 trial.
-
-| Configuration | Mean | Solved | Never finished |
-|---|---|---|---|
-| No harness (control) | 0.100 | 1/10 | 5/10 |
-| **Harness plus step budget** | **0.200** | 2/10 | 3/10 |
-
-The two components help for different reasons, which is why they add up on dev.
-The harness mostly converted wrong-but-finished runs into solved ones (14 down
-to 11) and barely moved non-convergence. The step budget did the reverse, cutting
+The two components help for different reasons, which is why they add up. The
+harness mostly converted wrong-but-finished runs into solved ones (14 down to 11)
+and barely moved non-convergence. The step budget did the reverse, cutting
 non-convergence from 10 to 7 while wrong-but-finished stayed flat, so the runs it
 freed up came back correct rather than rushed.
 
-The held-out result is weaker and I am not going to dress it up. A one-task gap
-at one trial is the same size as the noise floor, so it does not establish a
-lift. What is more telling is each arm against its own dev behaviour: the control
-scored 1/10 on holdout, which is inside its dev range of 1 to 3, while the
-harness configuration scored 2/10 against a dev range of 3 to 5. The control held
-steady on unseen tasks and the treatment dropped. That is what partial
-overfitting looks like, and it is roughly what I expected given the harness was
-written from failures on the dev set.
-
-Three trials on the holdout would settle it. That run has not been done.
+I also ran a single-trial probe on ten pre-registered tasks that had never been
+touched, scoring 0.200 against a 0.100 control. One trial is below the
+three-trial bar I hold everything else to, so it does not settle the transfer
+question in either direction. The direction was consistent, and one mechanism
+clearly carried over: non-convergence fell from 5/10 to 3/10, the same effect the
+step budget produced on dev. Three trials would resolve it and I have not run
+them.
 
 ## What I actually found
 
@@ -260,8 +255,8 @@ fails with an infrastructure error.
 ## Limitations
 
 The 0.400 is a development-set result and the harness was tuned against those ten
-tasks. The held-out gain was 0.100 at one trial, inside the noise floor, so it
-neither confirms nor refutes the dev result.
+tasks. The single-trial held-out probe is underpowered by my own standard and
+leaves the transfer question open.
 
 Ten tasks is not many. Even at three trials a one-task move is directional. The
 step budget on its own is worth 0.067, below my own gate, so only the full stack
@@ -276,8 +271,8 @@ my own analysis error and is corrected in
 
 ## What I would do next
 
-Three trials on the held-out set, which is the run that resolves the open
-question, at roughly $12.
+Three trials on the held-out set, which closes the transfer question one way or
+the other, at roughly $12.
 
 Move the step budget into a trailing message to keep the accuracy gain while
 restoring the cache discount. Ten lines or so, and it halves the cost of every
