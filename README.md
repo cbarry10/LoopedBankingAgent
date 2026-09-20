@@ -2,6 +2,10 @@
 
 **A 27B open-weight model rewrote its own agent instructions. I measured whether that worked.**
 
+[![Can an open-source harness effectively self-improve? Two halves: can a fixed open-weight model improve its own agent by rewriting only its prompt, and can you actually measure whether it did.](docs/slides/01-the-journey.png)](docs/OpenSourceBankingAgent-deck.pdf)
+
+**[Full deck, 7 slides (PDF)](docs/OpenSourceBankingAgent-deck.pdf)**
+
 τ²-bench `banking_knowledge`: 97 customer-service tasks over 698 policy documents,
 scored on the end state of a database rather than on what the agent says.
 Qwen3.8-27B plays all three roles, the agent, the simulated customer, and the
@@ -10,9 +14,18 @@ changes is prompt text.
 
 `248 scored runs · 205M tokens · ~$55 · every result committed by CI from the run that produced it`
 
+## How it works
+
+[![Architecture: the same model answers the task, plays the customer, and rewrites the rulebook between runs. Loop of run ten dev tasks, digest failures, diagnose, rewrite rules, re-run, through a gate that keeps if better and otherwise reverts.](docs/slides/02-architecture.png)](docs/OpenSourceBankingAgent-deck.pdf)
+
+Every arm shares one environment. Tools, knowledge base and scorer never change.
+The gate on the return path is where the story happens: a change is kept only if
+the mean improves by at least 0.10 over three trials, which is one full task
+equivalent and sits above the measured noise floor.
+
 ## Results
 
-Development set, 10 tasks at 3 trials each.
+[![Results: successful runs doubled. Original instructions 20% (6/30), revised instructions 33.3% (10/30), revised plus more turns 40% (12/30). Outcome breakdown by solved, finished-but-wrong, and never finished.](docs/slides/05-results.png)](docs/OpenSourceBankingAgent-deck.pdf)
 
 | Configuration | Mean | Solved | Never finished | Wrong but finished |
 |---|---|---|---|---|
@@ -51,7 +64,14 @@ same model found the ordering bug itself and fixed it on the first try.
 | 5 | Added a workflow checklist above them | 0.200 | reverted |
 
 Both layered restrictions pushed non-convergence *above* the no-harness baseline,
-13/30 and 12/30 against 10/30. Deliberation costs turns, and this agent has 26.
+13/30 and 12/30 against 10/30. Deliberation costs turns, and the turn count is
+where the agent breaks.
+
+[![Turn counts: simple requests were accurate, multi-step tasks failed. Everything that finished under 12 turns was correct. Three converged at 19 turns and all three were wrong. At 26 turns the step budget runs out and nothing returns.](docs/slides/06-turn-counts.png)](docs/OpenSourceBankingAgent-deck.pdf)
+
+Everything that finished under 12 turns was correct. Three tasks converged at 19
+turns and all three were wrong. At 26 turns the budget runs out and nothing comes
+back. Median turns when solved was 12, against 22.5 when not.
 
 ## Cost
 
@@ -75,6 +95,7 @@ in five iterations.
 
 | | |
 |---|---|
+| [`docs/OpenSourceBankingAgent-deck.pdf`](docs/OpenSourceBankingAgent-deck.pdf) | the full seven-slide deck |
 | [`harness/rules_fixer.md`](harness/rules_fixer.md) | the harness the model wrote, from an empty file |
 | [`harness/fixer.py`](harness/fixer.py) | the loop: digest, diagnose, rewrite, evaluate, keep or revert |
 | [`harness/FIXER_SPEC.md`](harness/FIXER_SPEC.md) | design, the v1 to v2 defect table, disclosures |
