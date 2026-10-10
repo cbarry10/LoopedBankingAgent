@@ -1,6 +1,6 @@
 # LoopedBankingAgent
 
-**A 27B open-weight model rewrote its own agent instructions. I measured whether that worked.**
+** Measuring whether a 27B open-weight model can improve accuracy on banking-specific tasks by re-writing harness rules .**
 
 [![Can an open-source harness effectively self-improve? Two halves: can a fixed open-weight model improve its own agent by rewriting only its prompt, and can you actually measure whether it did.](docs/slides/01-the-journey.png)](docs/OpenSourceBankingAgent-deck.pdf)
 
